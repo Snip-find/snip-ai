@@ -1,4 +1,4 @@
-import pdfParse from "pdf-parse";
+import pdfParse from "pdf-parse/lib/pdf-parse.js";
 
 const MAX_PDF_BYTES = 15 * 1024 * 1024;
 const TIMEOUT_MS = 25000;
