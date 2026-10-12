@@ -117,11 +117,20 @@ export default async function handler(req, res) {
       return res.status(415).json({ error: "The URL did not return a PDF." });
     }
 
+    // Count pages in the order pdf-parse renders them. Do not rely on
+    // pageData.pageIndex: older pdf.js/pdf-parse combinations may omit it or
+    // expose a value that is not stable across parser versions.
+    let renderedPageNumber = 0;
     const parsed = await pdfParse(bytes, {
       pagerender: async pageData => {
+        renderedPageNumber += 1;
         const content = await pageData.getTextContent();
-        return "\n[[SNIP_PAGE_" + (pageData.pageIndex + 1) + "]]\n" +
-          content.items.map(item => item.str || "").join(" ").replace(/\s+/g, " ").trim() + "\n";
+        const pageText = content.items
+          .map(item => item.str || "")
+          .join(" ")
+          .replace(/\s+/g, " ")
+          .trim();
+        return `\n[[SNIP_PAGE_${renderedPageNumber}]]\n${pageText}\n`;
       }
     });
     const split = String(parsed.text || "").split(/\[\[SNIP_PAGE_(\d+)\]\]/g);
