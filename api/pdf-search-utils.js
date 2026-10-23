@@ -134,23 +134,17 @@ function periodsFromHeader(header) {
   const dates = [...String(header).matchAll(new RegExp(`\\b\\d{1,2}\\s+${MONTH_PATTERN}\\b`, "gi"))]
     .map(match => match[0]);
   const periods = [];
-  const seen = new Set();
 
+  // Do not deduplicate repeated periods: consolidated and company statements
+  // can share the same dates side by side. Each header occurrence represents a
+  // separate value column and must remain aligned with the row's cell order.
   for (let index = 0; index < Math.min(years.length, dates.length); index += 1) {
-    const period = `${dates[index]} ${years[index]}`;
-    if (!seen.has(period)) {
-      seen.add(period);
-      periods.push(period);
-    }
+    periods.push(`${dates[index]} ${years[index]}`);
   }
 
   if (!periods.length) {
-    for (const year of years) {
-      if (!seen.has(year)) {
-        seen.add(year);
-        periods.push(year);
-      }
-    }
+    // Preserve repeated years for the same reason when dates are unavailable.
+    for (const year of years) periods.push(year);
   }
 
   return periods;
