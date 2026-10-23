@@ -1,10 +1,16 @@
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 const ALLOWED_ORIGIN = "*";
+const DEFAULT_OPENAI_TIMEOUT_MS = 15000;
+const configuredOpenAiTimeout = Number(process.env.SNIP_OPENAI_TIMEOUT_MS);
+const OPENAI_TIMEOUT_MS = Number.isFinite(configuredOpenAiTimeout) && configuredOpenAiTimeout >= 10
+  ? Math.min(configuredOpenAiTimeout, DEFAULT_OPENAI_TIMEOUT_MS)
+  : DEFAULT_OPENAI_TIMEOUT_MS;
 
 export default async function handler(req, res) {
   res.setHeader("Access-Control-Allow-Origin", ALLOWED_ORIGIN);
   res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+  res.setHeader("Access-Control-Max-Age", "86400");
 
   if (req.method === "OPTIONS") return res.status(204).end();
 
@@ -551,7 +557,15 @@ function hasExplicitRelationshipIdentity(sentence, info) {
 function findBestDeterministicSentence(ranked, info) {
   if (!ranked.length) return null;
 
-  const scored = ranked.map(item => ({ ...item, score: item.score }));
+  const relevantTerms = info.terms.filter(term => term.length >= 3);
+  if (!relevantTerms.length) return null;
+
+  const matchingSentences = ranked.filter(item =>
+    relevantTerms.some(term => item.sentence.toLowerCase().includes(term))
+  );
+  if (!matchingSentences.length) return null;
+
+  const scored = matchingSentences.map(item => ({ ...item, score: item.score }));
 
   // WHO
   if (info.isWho) {
@@ -844,13 +858,18 @@ Page/document candidates:
 ${candidateText}
 `;
 
-  const response = await fetch("https://api.openai.com/v1/responses", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "Authorization": `Bearer ${OPENAI_API_KEY}`
-    },
-    body: JSON.stringify({
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), OPENAI_TIMEOUT_MS);
+
+  try {
+    const response = await fetch("https://api.openai.com/v1/responses", {
+      method: "POST",
+      signal: controller.signal,
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${OPENAI_API_KEY}`
+      },
+      body: JSON.stringify({
       model: "gpt-5-mini",
       input: [
         {
@@ -888,20 +907,28 @@ ${candidateText}
           }
         }
       }
-    })
-  });
+      })
+    });
 
-  if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(`OpenAI API ${response.status}: ${errorText}`);
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`OpenAI API ${response.status}: ${errorText}`);
+    }
+
+    const data = await response.json();
+    const outputText = extractResponseText(data);
+
+    if (!outputText) throw new Error("Empty OpenAI response");
+
+    return parseJsonSafely(outputText);
+  } catch (error) {
+    if (controller.signal.aborted) {
+      throw new Error("OpenAI verification timed out");
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeout);
   }
-
-  const data = await response.json();
-  const outputText = extractResponseText(data);
-
-  if (!outputText) throw new Error("Empty OpenAI response");
-
-  return parseJsonSafely(outputText);
 }
 
 
@@ -964,23 +991,19 @@ function normalizeModelEvidence(modelResult, candidates, cleanBlocks) {
     if (!Number.isFinite(blockIndex) || !passage) continue;
 
     const candidate = candidates.find(c =>
-      c.block_index === blockIndex && textEquivalent(c.sentence, passage)
+      c.block_index === blockIndex && normalizeText(c.sentence) === normalizeText(passage)
     );
 
-    if (!candidate) {
-      const candidateByBlock = candidates.find(c => c.block_index === blockIndex);
-
-      if (!candidateByBlock) continue;
-
-      if (!containsEquivalentText(candidateByBlock.sentence, passage)) continue;
-    }
+    if (!candidate) continue;
 
     const block = cleanBlocks.find(b => b.index === blockIndex);
 
     result.push({
       block_index: blockIndex,
       block_id: block?.id || `block-${blockIndex}`,
-      passage,
+      // Return the original candidate, never a model-shortened or rewritten
+      // string. Consumers use this text to locate the exact source passage.
+      passage: candidate.sentence,
       section: block?.section || "Page",
       page: block?.page ?? null
     });
@@ -1003,19 +1026,6 @@ function normalizeText(text) {
     .replace(/\s+/g, " ")
     .trim();
 }
-
-function textEquivalent(a, b) {
-  const x = normalizeText(a);
-  const y = normalizeText(b);
-  return x === y || x.includes(y) || y.includes(x);
-}
-
-function containsEquivalentText(source, target) {
-  const x = normalizeText(source);
-  const y = normalizeText(target);
-  return x.includes(y) || y.includes(x);
-}
-
 
 /* ============================================================
    DEDUPE

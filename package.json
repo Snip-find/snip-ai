@@ -2,6 +2,9 @@
   "name": "snip-ai-backend",
   "version": "1.0.0",
   "type": "module",
+  "scripts": {
+    "test": "node --test"
+  },
   "dependencies": {
     "openai": "^6.0.0",
     "pdf-parse": "1.1.1"
