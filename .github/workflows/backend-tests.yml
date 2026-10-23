@@ -1,0 +1,23 @@
+name: Backend tests
+
+on:
+  pull_request:
+    branches: [main, fix/pdf-search-launch-accuracy]
+  push:
+    branches: [main, fix/pdf-search-launch-accuracy, fix/pdf-match-safety-followup]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - name: Install dependencies
+        run: npm install
+      - name: Run regression suite
+        run: npm test
