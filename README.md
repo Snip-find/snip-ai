@@ -26,8 +26,8 @@ SNIP_MS_PDF_PATH=/path/to/verified-report.pdf \
 SNIP_MS_EXPECTED_ANSWER='<verified amount from the primary statement>' \
 SNIP_MS_EXPECTED_PERIOD='<verified reporting date>' \
 SNIP_MS_EXPECTED_QUOTE='<exact row copied from the primary statement>' \
-SNIP_MS_EXPECTED_PAGE=<physical-PDF-page-number> \
-SNIP_MS_EXPECTED_PAGE_COUNT=<physical-PDF-page-count> \
+SNIP_MS_EXPECTED_PAGE=REPLACE_WITH_PHYSICAL_PAGE_NUMBER \
+SNIP_MS_EXPECTED_PAGE_COUNT=REPLACE_WITH_PHYSICAL_PAGE_COUNT \
 npm test
 ```
 
