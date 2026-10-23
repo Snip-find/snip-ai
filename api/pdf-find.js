@@ -1,4 +1,5 @@
 import pdfParse from "pdf-parse/lib/pdf-parse.js";
+import { isIP } from "node:net";
 import findHandler from "./find.js";
 import {
   extractFinancialRows,
@@ -17,13 +18,26 @@ const TIMEOUT_MS = Number.isFinite(configuredTimeout) && configuredTimeout >= 10
 function unsafeUrl(raw) {
   try {
     const u = new URL(raw);
-    if (!["http:", "https:"].includes(u.protocol)) return true;
-    const h = u.hostname.toLowerCase().replace(/^\[|\]$/g, "");
-    return h === "localhost" || h === "::1" || h === "0.0.0.0" ||
-      h.endsWith(".local") || h === "metadata.google.internal" ||
-      /^127\./.test(h) || /^10\./.test(h) || /^192\.168\./.test(h) ||
-      /^169\.254\./.test(h) || /^172\.(1[6-9]|2\d|3[01])\./.test(h) ||
-      /^::ffff:(?:127\.|10\.|192\.168\.)/i.test(h);
+    if (!["http:", "https:"].includes(u.protocol) || u.username || u.password) return true;
+    const h = u.hostname.toLowerCase().replace(/^\[|\]$/g, "").replace(/\.$/, "");
+    if (!h || h === "localhost" || h.endsWith(".localhost") ||
+        h.endsWith(".local") || h === "metadata.google.internal") return true;
+    const version = isIP(h);
+    if (version === 4) {
+      const [a, b] = h.split(".").map(Number);
+      return a === 0 || a === 10 || a === 127 || a >= 224 ||
+        (a === 100 && b >= 64 && b <= 127) || (a === 169 && b === 254) ||
+        (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168) ||
+        (a === 192 && b === 0) || (a === 198 && (b === 18 || b === 19 || b === 51)) ||
+        (a === 203 && b === 0);
+    }
+    if (version === 6) {
+      const ip = h.toLowerCase();
+      return ip === "::" || ip === "::1" || ip.startsWith("::ffff:") ||
+        /^f[cd][0-9a-f]{2}:/i.test(ip) || /^fe[89ab][0-9a-f]:/i.test(ip) ||
+        /^ff[0-9a-f]{2}:/i.test(ip) || /^2001:db8:/i.test(ip);
+    }
+    return false;
   } catch { return true; }
 }
 
@@ -133,19 +147,32 @@ export default async function handler(req, res) {
   const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
 
   try {
-    const response = await fetch(url, {
-      redirect: "follow",
-      signal: controller.signal,
-      headers: { Accept: "application/pdf,*/*;q=0.8", "User-Agent": "Snip PDF reader" }
-    });
-    if (!response.ok) {
-      const error = new Error(`Could not download the PDF (${response.status}).`);
-      error.statusCode = 502;
-      throw error;
+    // Validate every redirect before requesting it; never auto-follow into a private network.
+    let requestUrl = url;
+    let response;
+    for (let redirects = 0; redirects <= 3; redirects += 1) {
+      if (unsafeUrl(requestUrl)) {
+        const error = new Error("The PDF URL redirected to an unsupported address.");
+        error.statusCode = 400;
+        throw error;
+      }
+      response = await fetch(requestUrl, {
+        redirect: "manual",
+        signal: controller.signal,
+        headers: { Accept: "application/pdf,*/*;q=0.8", "User-Agent": "Snip PDF reader" }
+      });
+      if (![301, 302, 303, 307, 308].includes(response.status)) break;
+      const location = response.headers.get("location");
+      if (!location || redirects === 3) {
+        const error = new Error("The PDF URL has too many redirects or an invalid redirect.");
+        error.statusCode = 502;
+        throw error;
+      }
+      requestUrl = new URL(location, requestUrl).toString();
     }
-    if (response.url && unsafeUrl(response.url)) {
-      const error = new Error("The PDF URL redirected to an unsupported address.");
-      error.statusCode = 400;
+    if (!response?.ok) {
+      const error = new Error(`Could not download the PDF (${response?.status || "unknown"}).`);
+      error.statusCode = 502;
       throw error;
     }
     const bytes = await readLimited(response, controller);
