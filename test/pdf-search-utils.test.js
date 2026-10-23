@@ -125,3 +125,17 @@ test("does not short-circuit explanatory or movement questions to a statement ro
     null
   );
 });
+
+test("keeps two-column prose separate while preserving financial rows", () => {
+  const lines = extractPageLines([
+    { str: "The first column contains a complete sentence", width: 190, transform: [1, 0, 0, 1, 40, 100] },
+    { str: "The second column contains another sentence", width: 200, transform: [1, 0, 0, 1, 330, 100] },
+    { str: "Cash and cash equivalents", width: 145, transform: [1, 0, 0, 1, 40, 80] },
+    { str: "864.5", width: 25, transform: [1, 0, 0, 1, 320, 80] }
+  ]);
+  assert.deepEqual(lines, [
+    "The first column contains a complete sentence",
+    "The second column contains another sentence",
+    "Cash and cash equivalents 864.5"
+  ]);
+});
