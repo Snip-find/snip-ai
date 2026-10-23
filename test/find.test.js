@@ -123,3 +123,58 @@ test("candidate text budget preserves a highly relevant passage late in a long d
     globalThis.fetch = originalFetch;
   }
 });
+
+test("an explicit section request never falls back to another section", async () => {
+  const originalFetch = globalThis.fetch;
+  let openAiCalled = false;
+  globalThis.fetch = async () => {
+    openAiCalled = true;
+    return new Response(JSON.stringify({ output_text: JSON.stringify({ evidence: [] }) }), {
+      status: 200, headers: { "content-type": "application/json" }
+    });
+  };
+  try {
+    const response = createResponse();
+    await findHandler({
+      method: "POST",
+      body: {
+        question: "What did the report say in the Legacy section?",
+        blocks: [
+          { index: 0, id: "other", section: "Financial Review", page: 10, text: "The company reported strong revenue growth in the year." }
+        ]
+      },
+      headers: {}
+    }, response);
+    assert.equal(response.statusCode, 200);
+    assert.deepEqual(response.body.evidence, []);
+    assert.equal(openAiCalled, false);
+  } finally { globalThis.fetch = originalFetch; }
+});
+
+test("an explicit section request searches only matching section metadata", async () => {
+  const originalFetch = globalThis.fetch;
+  let submittedInput = "";
+  globalThis.fetch = async (_url, options) => {
+    submittedInput = JSON.stringify(JSON.parse(options.body).input);
+    return new Response(JSON.stringify({ output_text: JSON.stringify({ evidence: [] }) }), {
+      status: 200, headers: { "content-type": "application/json" }
+    });
+  };
+  try {
+    const response = createResponse();
+    await findHandler({
+      method: "POST",
+      body: {
+        question: "What did the report say in the Legacy section?",
+        blocks: [
+          { index: 0, id: "legacy", section: "Legacy Section", page: 10, text: "The legacy division was sold in 2025 after a strategic review." },
+          { index: 1, id: "other", section: "Financial Review", page: 11, text: "The company reported strong revenue growth in the year." }
+        ]
+      },
+      headers: {}
+    }, response);
+    assert.equal(response.statusCode, 200);
+    assert.match(submittedInput, /legacy division was sold/i);
+    assert.doesNotMatch(submittedInput, /strong revenue growth/i);
+  } finally { globalThis.fetch = originalFetch; }
+});
