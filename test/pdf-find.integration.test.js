@@ -57,6 +57,7 @@ test("PDF endpoint answers the M&S FY2025 cash question from the primary stateme
     assert.match(response.body.sourceQuote, /^Cash and cash equivalents\s+18\s+864\.5\s+1,022\.4$/);
     assert.equal(response.body.evidence[0].section, "Primary consolidated statement of financial position");
     assert.equal(response.body.evidence[0].page, 126);
+    assert.equal(response.body.evidence[0].quote, response.body.sourceQuote);
     assert.equal(response.body.pageCount, 224);
 
     const absentPeriod = createResponse();
