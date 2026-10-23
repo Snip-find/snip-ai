@@ -114,11 +114,26 @@ export default async function handler(req, res) {
     const includedCandidateKeys = new Set();
     let totalChars = 0;
 
-    for (const item of candidates) {
+    // The model candidate list is ordered by source position for readable
+    // context, but long PDFs can put the best passage after the 30k cutoff.
+    // Select within the budget by relevance first, skip oversized entries
+    // instead of stopping, then restore source order below.
+    const scoreByKey = new Map(ranked.map(item => [
+      `${item.block_index}:${item.sentence_index}`,
+      item.score
+    ]));
+    const budgetCandidates = [...candidates].sort((a, b) =>
+      (scoreByKey.get(`${b.block_index}:${b.sentence_index}`) ?? 0) -
+        (scoreByKey.get(`${a.block_index}:${a.sentence_index}`) ?? 0) ||
+      a.block_index - b.block_index ||
+      a.sentence_index - b.sentence_index
+    );
+
+    for (const item of budgetCandidates) {
       const line =
         `[block ${item.block_index} | page: ${item.page ?? "-"} | section: ${item.section}]\n${item.sentence}\n`;
 
-      if (totalChars + line.length > 30000) break;
+      if (totalChars + line.length > 30000) continue;
 
       candidateTextParts.push(line);
       totalChars += line.length;
