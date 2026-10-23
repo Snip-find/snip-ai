@@ -536,13 +536,13 @@ function scoreSentence(item, info) {
 function extractRequestedSection(question) {
   const text = String(question || "").trim();
   const patterns = [
-    /\\b(?:in|from|within|under)\\s+(?:the\\s+)?["“']?([^"”'?,.!;]+?)["”']?\\s+(?:section|chapter|heading|part)\\b/i,
-    /\\b(?:section|chapter|heading|part)\\s+["“']?([^"”'?,.!;]+?)["”']?(?=$|[?,.!;])/i
+    /\b(?:in|from|within|under)\s+(?:the\s+)?["“']?([^"”'?,.!;]+?)["”']?\s+(?:section|chapter|heading|part)\b/i,
+    /\b(?:section|chapter|heading|part)\s+["“']?([^"”'?,.!;]+?)["”']?(?=$|[?,.!;])/i
   ];
   for (const pattern of patterns) {
     const match = text.match(pattern);
     if (match?.[1]) {
-      const value = match[1].trim().replace(/^(?:the|a|an)\\s+/i, "");
+      const value = match[1].trim().replace(/^(?:the|a|an)\s+/i, "");
       if (value && !/^(?:this|that|relevant|same)$/i.test(value)) return value;
     }
   }
@@ -555,7 +555,6 @@ function normalizeSectionName(value) {
     .replace(/[^a-z0-9]+/g, " ")
     .trim();
 }
-
 
 /* ============================================================
    PERSON DETECTION
