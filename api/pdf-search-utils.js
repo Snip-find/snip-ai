@@ -50,21 +50,41 @@ export function extractPageLines(items) {
       row = { y, items: [] };
       rows.push(row);
     }
-    row.items.push({ x, text });
+    row.items.push({ x, y, width: Number(item?.width) || 0, text });
   }
 
   if (!rows.length) return fallback;
 
+  // Separate prose columns sharing a baseline; preserve short-label/numeric table rows.
   const positioned = rows
     .sort((a, b) => b.y - a.y)
-    .map(row =>
-      row.items
-        .sort((a, b) => a.x - b.x)
-        .map(item => item.text)
-        .join(" ")
-        .replace(/\s+/g, " ")
-        .trim()
-    )
+    .flatMap(row => {
+      const items = row.items.sort((a, b) => a.x - b.x);
+      const joined = items.map(item => item.text).join(" ").replace(/\s+/g, " ").trim();
+      if (!joined) return [];
+      let splitAt = -1;
+      for (let i = 1; i < items.length; i += 1) {
+        const previous = items[i - 1];
+        const current = items[i];
+        const gap = current.x - (previous.x + Math.max(0, Number(previous.width) || 0));
+        if (gap < 90) continue;
+        const left = items.slice(0, i).map(item => item.text).join(" ").trim();
+        const right = items.slice(i).map(item => item.text).join(" ").trim();
+        const leftWords = (left.match(/[A-Za-z]{2,}/g) || []).length;
+        const rightWords = (right.match(/[A-Za-z]{2,}/g) || []).length;
+        const rightMostlyNumeric = /^[\s£€$()\d,.%+\-–—]+$/.test(right);
+        if (left.length >= 25 && right.length >= 25 && leftWords >= 4 &&
+            rightWords >= 4 && !rightMostlyNumeric) {
+          splitAt = i;
+          break;
+        }
+      }
+      if (splitAt < 0) return [joined];
+      return [
+        items.slice(0, splitAt).map(item => item.text).join(" ").replace(/\s+/g, " ").trim(),
+        items.slice(splitAt).map(item => item.text).join(" ").replace(/\s+/g, " ").trim()
+      ].filter(Boolean);
+    })
     .filter(Boolean);
 
   return fallback.length ? [...positioned, ...fallback] : positioned;
