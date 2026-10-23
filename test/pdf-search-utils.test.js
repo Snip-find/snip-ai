@@ -49,7 +49,7 @@ test("M&S-style FY2025 cash query selects the primary consolidated statement and
         "29 March 30 March 29 March 30 March",
         "2025 2024 2025 2024",
         "Notes £m £m Notes £m £m",
-        "Cash and cash equivalents 18 864.5 1,022.4"
+        "Cash and cash equivalents 18 864.5 1,022.4 — —"
       ].join("\n")
     },
     {
@@ -75,7 +75,7 @@ test("M&S-style FY2025 cash query selects the primary consolidated statement and
   assert.equal(result.period, "29 March 2025");
   assert.equal(result.row.page, 126);
   assert.equal(result.row.section, "Primary consolidated statement of financial position");
-  assert.equal(result.sourceQuote, "Cash and cash equivalents 18 864.5 1,022.4");
+  assert.equal(result.sourceQuote, "Cash and cash equivalents 18 864.5 1,022.4 — —");
 });
 
 test("period selection uses the requested comparative year", () => {
@@ -149,7 +149,7 @@ test("fails closed when the requested financial year is absent", () => {
     "2025 2024",
     "Notes £m £m",
     "Cash and cash equivalents 18 864.5 1,022.4"
-  ].join("\\n"), 126);
+  ].join("\n"), 126);
 
   assert.equal(
     selectPrimaryFinancialEvidence("What were cash and cash equivalents for FY2026?", rows),
@@ -161,9 +161,26 @@ test("does not return a plausible cash row when the requested primary statement 
   const rows = extractFinancialRows([
     "FINANCIAL REVIEW",
     "Cash and cash equivalents 18 864.5 1,022.4"
-  ].join("\\n"), 32);
+  ].join("\n"), 32);
 
   assert.equal(rows.length, 0);
+  assert.equal(
+    selectPrimaryFinancialEvidence("What were cash and cash equivalents for FY2025?", rows),
+    null
+  );
+});
+
+
+test("fails closed when extracted financial row has fewer values than reported periods", () => {
+  const row = [
+    "CONSOLIDATED STATEMENT OF FINANCIAL POSITION",
+    "As at As at As at As at",
+    "29 March 30 March 29 March 30 March",
+    "2025 2024 2025 2024",
+    "Notes £m £m Notes £m £m",
+    "Cash and cash equivalents 18 864.5 1,022.4"
+  ].join("\n");
+  const rows = extractFinancialRows(row, 126);
   assert.equal(
     selectPrimaryFinancialEvidence("What were cash and cash equivalents for FY2025?", rows),
     null
