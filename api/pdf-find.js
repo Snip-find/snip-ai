@@ -191,6 +191,9 @@ export default async function handler(req, res) {
         block_id: row.id,
         passage: row.text,
         text: row.text,
+        // The extension uses this exact source quote to validate and highlight
+        // the correct row. Keep it on the evidence object, not only top-level.
+        quote: financial.sourceQuote,
         section: row.section,
         page: row.page,
         period: financial.period,
