@@ -77,3 +77,49 @@ test("unrelated searches return no deterministic evidence", async () => {
     globalThis.fetch = originalFetch;
   }
 });
+
+
+test("candidate text budget preserves a highly relevant passage late in a long document", async () => {
+  const originalFetch = globalThis.fetch;
+  let submittedInput = "";
+  globalThis.fetch = async (_url, options) => {
+    const request = JSON.parse(options.body);
+    submittedInput = JSON.stringify(request.input);
+    return new Response(JSON.stringify({
+      output_text: JSON.stringify({ evidence: [] })
+    }), { status: 200, headers: { "content-type": "application/json" } });
+  };
+
+  try {
+    const filler = "ordinary corporate disclosure narrative ".repeat(42);
+    const blocks = Array.from({ length: 40 }, (_, index) => ({
+      index,
+      id: `long-${index}`,
+      text: filler,
+      section: `PDF page ${index + 1}`,
+      page: index + 1
+    }));
+    blocks[39] = {
+      index: 39,
+      id: "late-answer",
+      text: "Cash and cash equivalents for FY2025 were £864.5m at 29 March 2025.",
+      section: "PDF page 40",
+      page: 40
+    };
+
+    const response = createResponse();
+    await findHandler({
+      method: "POST",
+      body: {
+        question: "What were cash and cash equivalents for FY2025?",
+        blocks
+      },
+      headers: {}
+    }, response);
+
+    assert.equal(response.statusCode, 200);
+    assert.match(submittedInput, /Cash and cash equivalents for FY2025 were £864\.5m/);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
