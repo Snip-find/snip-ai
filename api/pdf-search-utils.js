@@ -259,8 +259,16 @@ export function selectPrimaryFinancialEvidence(question, rows) {
   const periods = periodsFromHeader(row.periodContext);
   const years = periods.map(period => period.match(/\b20\d{2}\b/)?.[0]).filter(Boolean);
   const values = valuesFromRow(row);
-  const columnCount = Math.min(periods.length, values.length);
-  const periodValues = columnCount ? values.slice(-columnCount) : values;
+
+  // Financial statement rows may contain a note number before the actual
+  // period values. Align values from the right only when every reported period
+  // has a corresponding extracted cell. If the header describes four columns
+  // but extraction found only a note number plus two values, do not mistake the
+  // note number for the requested year's amount.
+  if (!periods.length || values.length < periods.length || years.length !== periods.length) {
+    return null;
+  }
+  const periodValues = values.slice(-periods.length);
   const selectedYear = year || years[0] || null;
   const valueIndex = selectedYear ? years.indexOf(selectedYear) : 0;
   if (valueIndex < 0 || valueIndex >= periodValues.length) return null;
