@@ -135,7 +135,6 @@ export default async function handler(req, res) {
 
       if (totalChars + line.length > 30000) continue;
 
-      candidateTextParts.push(line);
       totalChars += line.length;
       includedCandidateKeys.add(`${item.block_index}:${item.sentence_index}`);
     }
@@ -143,6 +142,13 @@ export default async function handler(req, res) {
     candidates = candidates.filter(item =>
       includedCandidateKeys.has(`${item.block_index}:${item.sentence_index}`)
     );
+
+    // Keep prompt order readable after selecting by relevance.
+    for (const item of candidates) {
+      candidateTextParts.push(
+        `[block ${item.block_index} | page: ${item.page ?? "-"} | section: ${item.section}]\n${item.sentence}\n`
+      );
+    }
 
     if (!candidates.length) {
       return res.status(200).json({ evidence: [] });
