@@ -59,10 +59,24 @@ export default async function handler(req, res) {
 
     const info = analyzeQuestion(question);
 
+    // Explicit section requests are hard constraints, not ranking hints.
+    // If the caller has no section metadata for the requested section, fail
+    // closed rather than returning a plausible passage from another section.
+    const requestedSection = extractRequestedSection(question);
+    const searchBlocks = requestedSection
+      ? cleanBlocks.filter(block =>
+          normalizeSectionName(block.section).includes(normalizeSectionName(requestedSection))
+        )
+      : cleanBlocks;
+
+    if (requestedSection && !searchBlocks.length) {
+      return res.status(200).json({ evidence: [] });
+    }
+
     // SENTENCE EXTRACTION
     const sentenceItems = [];
 
-    for (const block of cleanBlocks) {
+    for (const block of searchBlocks) {
       const sentences = splitIntoSentences(block.text);
 
       sentences.forEach((sentence, sentenceIndex) => {
@@ -516,6 +530,34 @@ function scoreSentence(item, info) {
 
 
 /* ============================================================
+   EXPLICIT SECTION CONSTRAINTS
+   ============================================================ */
+
+function extractRequestedSection(question) {
+  const text = String(question || "").trim();
+  const patterns = [
+    /\\b(?:in|from|within|under)\\s+(?:the\\s+)?["“']?([^"”'?,.!;]+?)["”']?\\s+(?:section|chapter|heading|part)\\b/i,
+    /\\b(?:section|chapter|heading|part)\\s+["“']?([^"”'?,.!;]+?)["”']?(?=$|[?,.!;])/i
+  ];
+  for (const pattern of patterns) {
+    const match = text.match(pattern);
+    if (match?.[1]) {
+      const value = match[1].trim().replace(/^(?:the|a|an)\\s+/i, "");
+      if (value && !/^(?:this|that|relevant|same)$/i.test(value)) return value;
+    }
+  }
+  return null;
+}
+
+function normalizeSectionName(value) {
+  return String(value || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+}
+
+
+/* ============================================================
    PERSON DETECTION
    ============================================================ */
 
@@ -856,6 +898,9 @@ WHAT:
 - Find the sentence that directly defines or explains the requested thing.
 
 If no candidate directly answers the question, return an empty evidence array.
+- Explicit section constraints are mandatory. If the user asks for a named section, use only candidates whose section metadata identifies that section. Never substitute a similar passage from another section.
+- Explicit years and dates must match the requested period; do not substitute another reporting year.
+- If the source does not contain enough information to verify the requested section or period, return an empty evidence array.
 `;
 
   const userPrompt = `
