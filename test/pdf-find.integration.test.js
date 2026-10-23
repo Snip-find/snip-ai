@@ -97,3 +97,38 @@ test("PDF preflight advertises cross-origin POST support without fetching a PDF"
     globalThis.fetch = originalFetch;
   }
 });
+
+test("rejects IPv6 private targets and credential-bearing URLs before fetching", async () => {
+  const originalFetch = globalThis.fetch;
+  let fetchCount = 0;
+  globalThis.fetch = async () => { fetchCount += 1; throw new Error("Unsafe URL must not be fetched"); };
+  try {
+    for (const url of [
+      "http://[fc00::1]/secret.pdf",
+      "http://[fe80::1]/secret.pdf",
+      "http://[::ffff:172.16.0.1]/secret.pdf",
+      "http://127.0.0.1/private.pdf",
+      "http://user:pass@example.com/report.pdf"
+    ]) {
+      const response = createResponse();
+      await pdfFindHandler({ method: "POST", body: { url, question: "What is the answer?" }, headers: {} }, response);
+      assert.equal(response.statusCode, 400, url);
+    }
+    assert.equal(fetchCount, 0);
+  } finally { globalThis.fetch = originalFetch; }
+});
+
+test("validates redirect targets before fetching them", async () => {
+  const originalFetch = globalThis.fetch;
+  const requested = [];
+  globalThis.fetch = async url => {
+    requested.push(String(url));
+    return new Response(null, { status: 302, headers: { location: "http://[fc00::1]/internal.pdf" } });
+  };
+  try {
+    const response = createResponse();
+    await pdfFindHandler({ method: "POST", body: { url: "https://public.example/report.pdf", question: "What is the answer?" }, headers: {} }, response);
+    assert.equal(response.statusCode, 400);
+    assert.deepEqual(requested, ["https://public.example/report.pdf"]);
+  } finally { globalThis.fetch = originalFetch; }
+});
