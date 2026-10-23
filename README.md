@@ -23,12 +23,12 @@ Set all six environment variables, then run `npm test`:
 
 ```sh
 SNIP_MS_PDF_PATH=/path/to/verified-report.pdf \
-SNIP_MS_EXPECTED_ANSWER='£863.7m' \
-SNIP_MS_EXPECTED_PERIOD='29 March 2025' \
-SNIP_MS_EXPECTED_QUOTE='paste the exact cash row from the verified PDF' \
-SNIP_MS_EXPECTED_PAGE=90 \
-SNIP_MS_EXPECTED_PAGE_COUNT=135 \
+SNIP_MS_EXPECTED_ANSWER='<verified amount from the primary statement>' \
+SNIP_MS_EXPECTED_PERIOD='<verified reporting date>' \
+SNIP_MS_EXPECTED_QUOTE='<exact row copied from the primary statement>' \
+SNIP_MS_EXPECTED_PAGE=<physical-PDF-page-number> \
+SNIP_MS_EXPECTED_PAGE_COUNT=<physical-PDF-page-count> \
 npm test
 ```
 
-The example values above reflect the previously reported test document and must be checked against the exact PDF file before use. The integration test is skipped unless the file path and all expected values are supplied.
+Replace every placeholder with values verified against that exact PDF. Do not use the amount or page from a reconciliation table as the expected primary-statement result. The integration test is skipped unless the file path and all expected values are supplied.
