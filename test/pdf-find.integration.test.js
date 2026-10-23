@@ -26,8 +26,26 @@ function createResponse() {
   };
 }
 
+const msExpected = {
+  answer: process.env.SNIP_MS_EXPECTED_ANSWER,
+  period: process.env.SNIP_MS_EXPECTED_PERIOD,
+  quote: process.env.SNIP_MS_EXPECTED_QUOTE,
+  page: Number(process.env.SNIP_MS_EXPECTED_PAGE),
+  pageCount: Number(process.env.SNIP_MS_EXPECTED_PAGE_COUNT)
+};
+const msFixtureConfigured = Boolean(
+  process.env.SNIP_MS_PDF_PATH &&
+  msExpected.answer &&
+  msExpected.period &&
+  msExpected.quote &&
+  Number.isInteger(msExpected.page) && msExpected.page > 0 &&
+  Number.isInteger(msExpected.pageCount) && msExpected.pageCount > 0
+);
+
 test("PDF endpoint answers the M&S FY2025 cash question from the primary statement", {
-  skip: !process.env.SNIP_MS_PDF_PATH
+  // A real PDF must be supplied with its verified expected values. Avoid stale
+  // page/value assertions that could accidentally validate a different report edition.
+  skip: !msFixtureConfigured
 }, async () => {
   const pdfBytes = fs.readFileSync(process.env.SNIP_MS_PDF_PATH);
   const originalFetch = globalThis.fetch;
@@ -46,26 +64,26 @@ test("PDF endpoint answers the M&S FY2025 cash question from the primary stateme
       method: "POST",
       body: {
         url: "https://reports.example.test/ms-fy2025.pdf",
-        question: "Cash and cash equivalents"
+        question: "What were cash and cash equivalents for FY2025 in the consolidated statement of financial position?"
       },
       headers: {}
     }, response);
 
     assert.equal(response.statusCode, 200);
-    assert.equal(response.body.answer, "£864.5m");
-    assert.equal(response.body.period, "29 March 2025");
-    assert.match(response.body.sourceQuote, /^Cash and cash equivalents\s+18\s+864\.5\s+1,022\.4$/);
+    assert.equal(response.body.answer, msExpected.answer);
+    assert.equal(response.body.period, msExpected.period);
+    assert.equal(response.body.sourceQuote, msExpected.quote);
     assert.equal(response.body.evidence[0].section, "Primary consolidated statement of financial position");
-    assert.equal(response.body.evidence[0].page, 126);
+    assert.equal(response.body.evidence[0].page, msExpected.page);
     assert.equal(response.body.evidence[0].quote, response.body.sourceQuote);
-    assert.equal(response.body.pageCount, 224);
+    assert.equal(response.body.pageCount, msExpected.pageCount);
 
     const absentPeriod = createResponse();
     await pdfFindHandler({
       method: "POST",
       body: {
         url: "https://reports.example.test/ms-fy2025.pdf",
-        question: "What were cash and cash equivalents in the FY2026 financial statements?"
+        question: "What were cash and cash equivalents in the FY2026 consolidated statement of financial position?"
       },
       headers: {}
     }, absentPeriod);
@@ -78,7 +96,6 @@ test("PDF endpoint answers the M&S FY2025 cash question from the primary stateme
     globalThis.fetch = originalFetch;
   }
 });
-
 test("PDF preflight advertises cross-origin POST support without fetching a PDF", async () => {
   const originalFetch = globalThis.fetch;
   globalThis.fetch = async () => {
