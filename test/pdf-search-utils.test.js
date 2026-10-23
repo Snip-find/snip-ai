@@ -139,3 +139,33 @@ test("keeps two-column prose separate while preserving financial rows", () => {
     "Cash and cash equivalents 864.5"
   ]);
 });
+
+
+test("fails closed when the requested financial year is absent", () => {
+  const rows = extractFinancialRows([
+    "CONSOLIDATED STATEMENT OF FINANCIAL POSITION",
+    "As at As at",
+    "29 March 30 March",
+    "2025 2024",
+    "Notes £m £m",
+    "Cash and cash equivalents 18 864.5 1,022.4"
+  ].join("\\n"), 126);
+
+  assert.equal(
+    selectPrimaryFinancialEvidence("What were cash and cash equivalents for FY2026?", rows),
+    null
+  );
+});
+
+test("does not return a plausible cash row when the requested primary statement is absent", () => {
+  const rows = extractFinancialRows([
+    "FINANCIAL REVIEW",
+    "Cash and cash equivalents 18 864.5 1,022.4"
+  ].join("\\n"), 32);
+
+  assert.equal(rows.length, 0);
+  assert.equal(
+    selectPrimaryFinancialEvidence("What were cash and cash equivalents for FY2025?", rows),
+    null
+  );
+});
