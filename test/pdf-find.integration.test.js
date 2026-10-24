@@ -128,6 +128,7 @@ test("rejects private and special-use IPv4/IPv6 targets and credential-bearing U
       "http://[2001:db8::1]/documentation.pdf",
       "http://[2002:7f00:1::]/6to4.pdf",
       "http://127.0.0.1/private.pdf",
+      "http://192.88.99.1/6to4-relay.pdf",
       "http://user:pass@example.com/report.pdf"
     ]) {
       const response = createResponse();
