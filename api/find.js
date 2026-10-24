@@ -1,10 +1,16 @@
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 const ALLOWED_ORIGIN = "*";
+const DEFAULT_OPENAI_TIMEOUT_MS = 15000;
+const configuredOpenAiTimeout = Number(process.env.SNIP_OPENAI_TIMEOUT_MS);
+const OPENAI_TIMEOUT_MS = Number.isFinite(configuredOpenAiTimeout) && configuredOpenAiTimeout >= 10
+  ? Math.min(configuredOpenAiTimeout, DEFAULT_OPENAI_TIMEOUT_MS)
+  : DEFAULT_OPENAI_TIMEOUT_MS;
 
 export default async function handler(req, res) {
   res.setHeader("Access-Control-Allow-Origin", ALLOWED_ORIGIN);
   res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+  res.setHeader("Access-Control-Max-Age", "86400");
 
   if (req.method === "OPTIONS") return res.status(204).end();
 
@@ -53,10 +59,24 @@ export default async function handler(req, res) {
 
     const info = analyzeQuestion(question);
 
+    // Explicit section requests are hard constraints, not ranking hints.
+    // If the caller has no section metadata for the requested section, fail
+    // closed rather than returning a plausible passage from another section.
+    const requestedSection = extractRequestedSection(question);
+    const searchBlocks = requestedSection
+      ? cleanBlocks.filter(block =>
+          normalizeSectionName(block.section).includes(normalizeSectionName(requestedSection))
+        )
+      : cleanBlocks;
+
+    if (requestedSection && !searchBlocks.length) {
+      return res.status(200).json({ evidence: [] });
+    }
+
     // SENTENCE EXTRACTION
     const sentenceItems = [];
 
-    for (const block of cleanBlocks) {
+    for (const block of searchBlocks) {
       const sentences = splitIntoSentences(block.text);
 
       sentences.forEach((sentence, sentenceIndex) => {
@@ -108,13 +128,27 @@ export default async function handler(req, res) {
     const includedCandidateKeys = new Set();
     let totalChars = 0;
 
-    for (const item of candidates) {
+    // The model candidate list is ordered by source position for readable
+    // context, but long PDFs can put the best passage after the 30k cutoff.
+    // Select within the budget by relevance first, skip oversized entries
+    // instead of stopping, then restore source order below.
+    const scoreByKey = new Map(ranked.map(item => [
+      `${item.block_index}:${item.sentence_index}`,
+      item.score
+    ]));
+    const budgetCandidates = [...candidates].sort((a, b) =>
+      (scoreByKey.get(`${b.block_index}:${b.sentence_index}`) ?? 0) -
+        (scoreByKey.get(`${a.block_index}:${a.sentence_index}`) ?? 0) ||
+      a.block_index - b.block_index ||
+      a.sentence_index - b.sentence_index
+    );
+
+    for (const item of budgetCandidates) {
       const line =
         `[block ${item.block_index} | page: ${item.page ?? "-"} | section: ${item.section}]\n${item.sentence}\n`;
 
-      if (totalChars + line.length > 30000) break;
+      if (totalChars + line.length > 30000) continue;
 
-      candidateTextParts.push(line);
       totalChars += line.length;
       includedCandidateKeys.add(`${item.block_index}:${item.sentence_index}`);
     }
@@ -122,6 +156,13 @@ export default async function handler(req, res) {
     candidates = candidates.filter(item =>
       includedCandidateKeys.has(`${item.block_index}:${item.sentence_index}`)
     );
+
+    // Keep prompt order readable after selecting by relevance.
+    for (const item of candidates) {
+      candidateTextParts.push(
+        `[block ${item.block_index} | page: ${item.page ?? "-"} | section: ${item.section}]\n${item.sentence}\n`
+      );
+    }
 
     if (!candidates.length) {
       return res.status(200).json({ evidence: [] });
@@ -489,6 +530,33 @@ function scoreSentence(item, info) {
 
 
 /* ============================================================
+   EXPLICIT SECTION CONSTRAINTS
+   ============================================================ */
+
+function extractRequestedSection(question) {
+  const text = String(question || "").trim();
+  const patterns = [
+    /\b(?:in|from|within|under)\s+(?:the\s+)?["“']?([^"”'?,.!;]+?)["”']?\s+(?:section|chapter|heading|part)\b/i,
+    /\b(?:section|chapter|heading|part)\s+["“']?([^"”'?,.!;]+?)["”']?(?=$|[?,.!;])/i
+  ];
+  for (const pattern of patterns) {
+    const match = text.match(pattern);
+    if (match?.[1]) {
+      const value = match[1].trim().replace(/^(?:the|a|an)\s+/i, "");
+      if (value && !/^(?:this|that|relevant|same)$/i.test(value)) return value;
+    }
+  }
+  return null;
+}
+
+function normalizeSectionName(value) {
+  return String(value || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+}
+
+/* ============================================================
    PERSON DETECTION
    ============================================================ */
 
@@ -551,7 +619,15 @@ function hasExplicitRelationshipIdentity(sentence, info) {
 function findBestDeterministicSentence(ranked, info) {
   if (!ranked.length) return null;
 
-  const scored = ranked.map(item => ({ ...item, score: item.score }));
+  const relevantTerms = info.terms.filter(term => term.length >= 3);
+  if (!relevantTerms.length) return null;
+
+  const matchingSentences = ranked.filter(item =>
+    relevantTerms.some(term => item.sentence.toLowerCase().includes(term))
+  );
+  if (!matchingSentences.length) return null;
+
+  const scored = matchingSentences.map(item => ({ ...item, score: item.score }));
 
   // WHO
   if (info.isWho) {
@@ -821,6 +897,9 @@ WHAT:
 - Find the sentence that directly defines or explains the requested thing.
 
 If no candidate directly answers the question, return an empty evidence array.
+- Explicit section constraints are mandatory. If the user asks for a named section, use only candidates whose section metadata identifies that section. Never substitute a similar passage from another section.
+- Explicit years and dates must match the requested period; do not substitute another reporting year.
+- If the source does not contain enough information to verify the requested section or period, return an empty evidence array.
 `;
 
   const userPrompt = `
@@ -844,13 +923,18 @@ Page/document candidates:
 ${candidateText}
 `;
 
-  const response = await fetch("https://api.openai.com/v1/responses", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "Authorization": `Bearer ${OPENAI_API_KEY}`
-    },
-    body: JSON.stringify({
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), OPENAI_TIMEOUT_MS);
+
+  try {
+    const response = await fetch("https://api.openai.com/v1/responses", {
+      method: "POST",
+      signal: controller.signal,
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${OPENAI_API_KEY}`
+      },
+      body: JSON.stringify({
       model: "gpt-5-mini",
       input: [
         {
@@ -888,20 +972,28 @@ ${candidateText}
           }
         }
       }
-    })
-  });
+      })
+    });
 
-  if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(`OpenAI API ${response.status}: ${errorText}`);
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`OpenAI API ${response.status}: ${errorText}`);
+    }
+
+    const data = await response.json();
+    const outputText = extractResponseText(data);
+
+    if (!outputText) throw new Error("Empty OpenAI response");
+
+    return parseJsonSafely(outputText);
+  } catch (error) {
+    if (controller.signal.aborted) {
+      throw new Error("OpenAI verification timed out");
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeout);
   }
-
-  const data = await response.json();
-  const outputText = extractResponseText(data);
-
-  if (!outputText) throw new Error("Empty OpenAI response");
-
-  return parseJsonSafely(outputText);
 }
 
 
@@ -964,23 +1056,19 @@ function normalizeModelEvidence(modelResult, candidates, cleanBlocks) {
     if (!Number.isFinite(blockIndex) || !passage) continue;
 
     const candidate = candidates.find(c =>
-      c.block_index === blockIndex && textEquivalent(c.sentence, passage)
+      c.block_index === blockIndex && normalizeText(c.sentence) === normalizeText(passage)
     );
 
-    if (!candidate) {
-      const candidateByBlock = candidates.find(c => c.block_index === blockIndex);
-
-      if (!candidateByBlock) continue;
-
-      if (!containsEquivalentText(candidateByBlock.sentence, passage)) continue;
-    }
+    if (!candidate) continue;
 
     const block = cleanBlocks.find(b => b.index === blockIndex);
 
     result.push({
       block_index: blockIndex,
       block_id: block?.id || `block-${blockIndex}`,
-      passage,
+      // Return the original candidate, never a model-shortened or rewritten
+      // string. Consumers use this text to locate the exact source passage.
+      passage: candidate.sentence,
       section: block?.section || "Page",
       page: block?.page ?? null
     });
@@ -1003,19 +1091,6 @@ function normalizeText(text) {
     .replace(/\s+/g, " ")
     .trim();
 }
-
-function textEquivalent(a, b) {
-  const x = normalizeText(a);
-  const y = normalizeText(b);
-  return x === y || x.includes(y) || y.includes(x);
-}
-
-function containsEquivalentText(source, target) {
-  const x = normalizeText(source);
-  const y = normalizeText(target);
-  return x.includes(y) || y.includes(x);
-}
-
 
 /* ============================================================
    DEDUPE

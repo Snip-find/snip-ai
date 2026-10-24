@@ -1,20 +1,91 @@
 import pdfParse from "pdf-parse/lib/pdf-parse.js";
+import { isIP } from "node:net";
+import { lookup as dnsLookup } from "node:dns";
+import { Agent } from "undici";
+import findHandler from "./find.js";
+import {
+  extractFinancialRows,
+  extractPageLines,
+  isCashPositionLookup,
+  selectPrimaryFinancialEvidence
+} from "./pdf-search-utils.js";
 
 const MAX_PDF_BYTES = 15 * 1024 * 1024;
-const TIMEOUT_MS = 25000;
+const DEFAULT_TIMEOUT_MS = 25000;
+const configuredTimeout = Number(process.env.SNIP_PDF_TIMEOUT_MS);
+const TIMEOUT_MS = Number.isFinite(configuredTimeout) && configuredTimeout >= 10
+  ? Math.min(configuredTimeout, DEFAULT_TIMEOUT_MS)
+  : DEFAULT_TIMEOUT_MS;
 
 function unsafeUrl(raw) {
   try {
     const u = new URL(raw);
-    if (!["http:", "https:"].includes(u.protocol)) return true;
-    const h = u.hostname.toLowerCase().replace(/^\[|\]$/g, "");
-    return h === "localhost" || h === "::1" || h === "0.0.0.0" ||
-      h.endsWith(".local") || h === "metadata.google.internal" ||
-      /^127\./.test(h) || /^10\./.test(h) || /^192\.168\./.test(h) ||
-      /^169\.254\./.test(h) || /^172\.(1[6-9]|2\d|3[01])\./.test(h) ||
-      /^::ffff:(?:127\.|10\.|192\.168\.)/i.test(h);
+    if (!["http:", "https:"].includes(u.protocol) || u.username || u.password) return true;
+    const h = u.hostname.toLowerCase().replace(/^\[|\]$/g, "").replace(/\.$/, "");
+    if (!h || h === "localhost" || h.endsWith(".localhost") ||
+        h.endsWith(".local") || h === "metadata.google.internal") return true;
+    const version = isIP(h);
+    if (version === 4) {
+      const [a, b] = h.split(".").map(Number);
+      return a === 0 || a === 10 || a === 127 || a >= 224 ||
+        (a === 100 && b >= 64 && b <= 127) || (a === 169 && b === 254) ||
+        (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168) ||
+        (a === 192 && b === 0) || (a === 198 && (b === 18 || b === 19 || b === 51)) ||
+        (a === 203 && b === 0);
+    }
+    if (version === 6) {
+      const ip = h.toLowerCase();
+      // Only permit globally routable IPv6 unicast (2000::/3). This blocks
+      // unspecified, loopback, ULA, link-local, multicast, mapped IPv4 and
+      // most special-use ranges by default instead of trying to enumerate them.
+      if (ip === "::" || ip === "::1" || ip.startsWith("::ffff:")) return true;
+      const firstHextet = Number.parseInt(ip.split(":")[0] || "0", 16);
+      if (!Number.isInteger(firstHextet) || firstHextet < 0x2000 || firstHextet > 0x3fff) return true;
+      // Explicitly deny documentation and 6to4, which can encapsulate addresses
+      // that are not safe destinations for a server-side fetch.
+      const hextets = ip.split(":").filter(Boolean);
+      const secondHextet = hextets.length > 1 ? Number.parseInt(hextets[1], 16) : 0;
+      // IETF protocol assignments (2001::/23), including benchmarking and ORCHID.
+      if ((firstHextet === 0x2001 && secondHextet <= 0x01ff) ||
+          /^2001:db8:/i.test(ip) || /^2002:/i.test(ip)) return true;
+      return false;
+    }
+    return false;
   } catch { return true; }
 }
+
+// Pin outbound connections to DNS answers that are all public. Checking only the URL
+// hostname is insufficient: a public-looking hostname can resolve to loopback or
+// private addresses, and a separate preflight lookup would still allow rebinding.
+export function createPublicDnsLookup(resolve = dnsLookup) {
+  return function publicDnsLookup(hostname, options, callback) {
+    resolve(hostname, {
+    family: options?.family || 0,
+    hints: options?.hints || 0,
+    all: true,
+    verbatim: true
+    }, (error, addresses) => {
+      if (error) return callback(error);
+      if (!Array.isArray(addresses) || addresses.length === 0) {
+        return callback(new Error("The PDF host did not resolve to a public address."));
+      }
+      const hasUnsafeAddress = addresses.some(({ address }) => {
+        const host = String(address || "");
+        const urlHost = host.includes(":") ? `[${host}]` : host;
+        return unsafeUrl(`http://${urlHost}/`);
+      });
+      if (hasUnsafeAddress) {
+        return callback(new Error("The PDF host resolves to a non-public network address."));
+      }
+      // Return the validated DNS result itself so the socket connects to the
+      // checked address rather than performing a second, potentially rebinding lookup.
+      if (options?.all) return callback(null, addresses);
+      return callback(null, addresses[0].address, addresses[0].family);
+    });
+  };
+}
+
+export const publicDnsLookup = createPublicDnsLookup();
 
 function errorStatus(error, fallback = 500) {
   return Number.isInteger(error?.statusCode) ? error.statusCode : fallback;
@@ -53,6 +124,23 @@ async function readLimited(response, controller) {
   return Buffer.concat(chunks, total);
 }
 
+function withAbort(promise, signal) {
+  let onAbort;
+  const aborted = new Promise((_, reject) => {
+    onAbort = () => {
+      const error = new Error("Searching this PDF took too long. Try a smaller file or a direct PDF link.");
+      error.statusCode = 504;
+      reject(error);
+    };
+    if (signal.aborted) onAbort();
+    else signal.addEventListener("abort", onAbort, { once: true });
+  });
+
+  return Promise.race([promise, aborted]).finally(() => {
+    signal.removeEventListener("abort", onAbort);
+  });
+}
+
 function toBlocks(text, page) {
   const clean = String(text || "").replace(/\u00ad/g, "").replace(/[ \t]+/g, " ").trim();
   if (!clean) return [];
@@ -69,81 +157,138 @@ function toBlocks(text, page) {
   return result.map(text => ({ text, page }));
 }
 
+function captureResponse() {
+  return {
+    statusCode: 200,
+    body: null,
+    setHeader() {},
+    status(code) {
+      this.statusCode = code;
+      return this;
+    },
+    json(body) {
+      this.body = body;
+      return this;
+    },
+    end() {
+      return this;
+    }
+  };
+}
+
 export default async function handler(req, res) {
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+  res.setHeader("Access-Control-Max-Age", "86400");
   if (req.method === "OPTIONS") return res.status(204).end();
   if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
 
-  try {
-    const question = String(req.body?.question || "").trim();
-    const url = String(req.body?.url || "").trim();
-    if (!question) return res.status(400).json({ error: "Question is required." });
-    if (!url || unsafeUrl(url)) return res.status(400).json({ error: "A public PDF URL is required." });
+  const question = String(req.body?.question || "").trim();
+  const url = String(req.body?.url || "").trim();
+  if (!question) return res.status(400).json({ error: "Question is required." });
+  if (!url || unsafeUrl(url)) return res.status(400).json({ error: "A public PDF URL is required." });
 
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
-    let response, bytes;
-    try {
-      response = await fetch(url, {
-        redirect: "follow",
+  const controller = new AbortController();
+  const dispatcher = new Agent({ connect: { lookup: publicDnsLookup } });
+  const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
+
+  try {
+    // Validate every redirect before requesting it; never auto-follow into a private network.
+    let requestUrl = url;
+    let response;
+    for (let redirects = 0; redirects <= 3; redirects += 1) {
+      if (unsafeUrl(requestUrl)) {
+        const error = new Error("The PDF URL redirected to an unsupported address.");
+        error.statusCode = 400;
+        throw error;
+      }
+      response = await fetch(requestUrl, {
+        redirect: "manual",
+        dispatcher,
         signal: controller.signal,
         headers: { Accept: "application/pdf,*/*;q=0.8", "User-Agent": "Snip PDF reader" }
       });
-      if (!response.ok) {
-        const e = new Error(`Could not download the PDF (${response.status}).`);
-        e.statusCode = 502;
-        throw e;
+      if (![301, 302, 303, 307, 308].includes(response.status)) break;
+      const location = response.headers.get("location");
+      if (!location || redirects === 3) {
+        const error = new Error("The PDF URL has too many redirects or an invalid redirect.");
+        error.statusCode = 502;
+        throw error;
       }
-      if (response.url && unsafeUrl(response.url)) {
-        const e = new Error("The PDF URL redirected to an unsupported address.");
-        e.statusCode = 400;
-        throw e;
-      }
-      bytes = await readLimited(response, controller);
-    } catch (e) {
-      if (!e.statusCode) {
-        e.statusCode = controller.signal.aborted ? 504 : 502;
-        if (controller.signal.aborted) e.message = "Downloading this PDF took too long. Try a smaller file or a direct PDF link.";
-      }
-      return res.status(errorStatus(e, 502)).json({ error: e.message || "Could not download this PDF." });
-    } finally {
-      clearTimeout(timer);
+      requestUrl = new URL(location, requestUrl).toString();
     }
+    if (!response?.ok) {
+      const error = new Error(`Could not download the PDF (${response?.status || "unknown"}).`);
+      error.statusCode = 502;
+      throw error;
+    }
+    const bytes = await readLimited(response, controller);
 
     const contentType = String(response.headers.get("content-type") || "").toLowerCase();
     if (!contentType.includes("pdf") && !bytes.subarray(0, 5).toString().startsWith("%PDF-")) {
       return res.status(415).json({ error: "The URL did not return a PDF." });
     }
 
-    // Count pages in the order pdf-parse renders them. Do not rely on
-    // pageData.pageIndex: older pdf.js/pdf-parse combinations may omit it or
-    // expose a value that is not stable across parser versions.
+    // Count rendered pages explicitly; parser pageIndex values vary across
+    // pdf.js/pdf-parse versions. Preserve line boundaries for table row search.
     let renderedPageNumber = 0;
-    const parsed = await pdfParse(bytes, {
+    const parsePromise = pdfParse(bytes, {
       pagerender: async pageData => {
         renderedPageNumber += 1;
         const content = await pageData.getTextContent();
-        const pageText = content.items
-          .map(item => item.str || "")
-          .join(" ")
-          .replace(/\s+/g, " ")
-          .trim();
-        return `\n[[SNIP_PAGE_${renderedPageNumber}]]\n${pageText}\n`;
+        const lines = extractPageLines(content.items);
+        return `\n[[SNIP_PAGE_${renderedPageNumber}]]\n${lines.join("\n")}\n`;
       }
     });
+    const parsed = await withAbort(parsePromise, controller.signal);
     const split = String(parsed.text || "").split(/\[\[SNIP_PAGE_(\d+)\]\]/g);
     const blocks = [];
+    const financialRows = [];
     let index = 0;
     for (let i = 1; i < split.length; i += 2) {
       const page = Number(split[i]);
-      for (const item of toBlocks(split[i + 1] || "", page)) {
+      const pageText = split[i + 1] || "";
+      financialRows.push(...extractFinancialRows(pageText, page, financialRows.length));
+      for (const item of toBlocks(pageText, page)) {
         blocks.push({ id: `pdf-${page}-${index}`, index: index++, text: item.text, section: `PDF page ${page}`, page });
       }
     }
     if (!blocks.length) {
       return res.status(422).json({ error: "This PDF has no readable text. Scanned-PDF OCR is not supported yet." });
+    }
+
+    const financial = selectPrimaryFinancialEvidence(question, financialRows);
+    if (financial) {
+      const { row } = financial;
+      const evidence = {
+        block_index: row.index,
+        block_id: row.id,
+        passage: row.text,
+        text: row.text,
+        // The extension uses this exact source quote to validate and highlight
+        // the correct row. Keep it on the evidence object, not only top-level.
+        quote: financial.sourceQuote,
+        section: row.section,
+        page: row.page,
+        period: financial.period,
+        context: row.periodContext,
+        answer: financial.answer
+      };
+      return res.status(200).json({
+        answer: financial.answer,
+        period: financial.period,
+        sourceQuote: financial.sourceQuote,
+        evidence: [evidence],
+        pageCount: Number(parsed.numpages || 0)
+      });
+    }
+
+    // For this statement line, a notes or reconciliation table is not a safe
+    // substitute when the primary statement is missing or the requested year
+    // is absent. Return no result rather than silently switching sections.
+    if (isCashPositionLookup(question)) {
+      return res.status(200).json({ answer: null, evidence: [], pageCount: Number(parsed.numpages || 0) });
     }
 
     const terms = [...new Set((question.toLowerCase().match(/[a-z0-9]{3,}/g) || []))];
@@ -158,16 +303,17 @@ export default async function handler(req, res) {
         if (neighbor) chosen.set(neighbor.id, neighbor);
       }
     }
-    const protocol = String(req.headers["x-forwarded-proto"] || "https").split(",")[0];
-    const host = req.headers.host;
-    if (!host) return res.status(500).json({ error: "Server host unavailable." });
-    const analysis = await fetch(`${protocol}://${host}/api/find`, {
+    const analysisResponse = captureResponse();
+    const analysisPromise = findHandler({
       method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ question, blocks: [...chosen.values()].slice(0, 70) })
-    });
-    const result = await analysis.json().catch(() => ({}));
-    if (!analysis.ok) return res.status(502).json({ error: result.error || "Snip could not analyze this PDF." });
+      body: { question, blocks: [...chosen.values()].slice(0, 70) },
+      headers: {}
+    }, analysisResponse);
+    await withAbort(analysisPromise, controller.signal);
+    const result = analysisResponse.body || {};
+    if (analysisResponse.statusCode < 200 || analysisResponse.statusCode >= 300) {
+      return res.status(502).json({ error: result.error || "Snip could not analyze this PDF." });
+    }
     const evidence = (Array.isArray(result.evidence) ? result.evidence : []).map(item => {
       const block = blocks.find(b => b.id === item.block_id ||
         (item.block_index != null && b.index === Number(item.block_index)));
@@ -177,6 +323,13 @@ export default async function handler(req, res) {
     return res.status(200).json({ evidence: evidence.slice(0, 3), pageCount: Number(parsed.numpages || 0) });
   } catch (error) {
     console.error("Snip PDF search error:", error);
-    return res.status(errorStatus(error)).json({ error: error?.message || "Could not search this PDF." });
+    const status = controller.signal.aborted ? 504 : errorStatus(error);
+    const message = controller.signal.aborted && status === 504
+      ? "Searching this PDF took too long. Try a smaller file or a direct PDF link."
+      : error?.message || "Could not search this PDF.";
+    return res.status(status).json({ error: message });
+  } finally {
+    clearTimeout(timer);
+    await dispatcher.close();
   }
 }
