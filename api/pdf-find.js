@@ -43,7 +43,11 @@ function unsafeUrl(raw) {
       if (!Number.isInteger(firstHextet) || firstHextet < 0x2000 || firstHextet > 0x3fff) return true;
       // Explicitly deny documentation and 6to4, which can encapsulate addresses
       // that are not safe destinations for a server-side fetch.
-      if (/^2001:db8:/i.test(ip) || /^2002:/i.test(ip)) return true;
+      const hextets = ip.split(":").filter(Boolean);
+      const secondHextet = hextets.length > 1 ? Number.parseInt(hextets[1], 16) : 0;
+      // IETF protocol assignments (2001::/23), including benchmarking and ORCHID.
+      if ((firstHextet === 0x2001 && secondHextet <= 0x01ff) ||
+          /^2001:db8:/i.test(ip) || /^2002:/i.test(ip)) return true;
       return false;
     }
     return false;
