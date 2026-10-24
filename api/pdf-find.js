@@ -1,5 +1,7 @@
 import pdfParse from "pdf-parse/lib/pdf-parse.js";
 import { isIP } from "node:net";
+import { lookup as dnsLookup } from "node:dns";
+import { Agent } from "undici";
 import findHandler from "./find.js";
 import {
   extractFinancialRows,
@@ -39,6 +41,35 @@ function unsafeUrl(raw) {
     }
     return false;
   } catch { return true; }
+}
+
+// Pin outbound connections to DNS answers that are all public. Checking only the URL
+// hostname is insufficient: a public-looking hostname can resolve to loopback or
+// private addresses, and a separate preflight lookup would still allow rebinding.
+function publicDnsLookup(hostname, options, callback) {
+  dnsLookup(hostname, {
+    family: options?.family || 0,
+    hints: options?.hints || 0,
+    all: true,
+    verbatim: true
+  }, (error, addresses) => {
+    if (error) return callback(error);
+    if (!Array.isArray(addresses) || addresses.length === 0) {
+      return callback(new Error("The PDF host did not resolve to a public address."));
+    }
+    const hasUnsafeAddress = addresses.some(({ address }) => {
+      const host = String(address || "");
+      const urlHost = host.includes(":") ? `[${host}]` : host;
+      return unsafeUrl(`http://${urlHost}/`);
+    });
+    if (hasUnsafeAddress) {
+      return callback(new Error("The PDF host resolves to a non-public network address."));
+    }
+    // Return the validated DNS result itself so the socket connects to the
+    // checked address rather than performing a second, potentially rebinding lookup.
+    if (options?.all) return callback(null, addresses);
+    return callback(null, addresses[0].address, addresses[0].family);
+  });
 }
 
 function errorStatus(error, fallback = 500) {
@@ -144,6 +175,7 @@ export default async function handler(req, res) {
   if (!url || unsafeUrl(url)) return res.status(400).json({ error: "A public PDF URL is required." });
 
   const controller = new AbortController();
+  const dispatcher = new Agent({ connect: { lookup: publicDnsLookup } });
   const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
 
   try {
@@ -158,6 +190,7 @@ export default async function handler(req, res) {
       }
       response = await fetch(requestUrl, {
         redirect: "manual",
+        dispatcher,
         signal: controller.signal,
         headers: { Accept: "application/pdf,*/*;q=0.8", "User-Agent": "Snip PDF reader" }
       });
@@ -282,5 +315,6 @@ export default async function handler(req, res) {
     return res.status(status).json({ error: message });
   } finally {
     clearTimeout(timer);
+    await dispatcher.close();
   }
 }
