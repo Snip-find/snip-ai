@@ -8,6 +8,13 @@ Set `OPENAI_API_KEY` in the hosting provider's secret/environment-variable setti
 
 `api/find.js` searches supplied webpage/document text. `api/pdf-find.js` fetches a public PDF URL, extracts readable text, and returns source evidence with its PDF page number. Scanned PDFs are not OCR'd.
 
+
+## PDF fetch security
+
+The PDF endpoint rejects non-public IP literals and special-use IPv4/IPv6 destinations, refuses credential-bearing URLs, validates each redirect, and pins outbound connections to DNS answers that have been checked as public. If any DNS answer is private or otherwise disallowed, the request is rejected rather than choosing only the public answer. Automated tests cover loopback/private addresses, special-use IPv6 ranges, mixed public/private DNS answers, redirect validation, and a permitted global IPv6 address.
+
+These checks reduce server-side request forgery risk; they are not a substitute for reviewing hosting-network egress controls and monitoring before production rollout.
+
 ## Tests
 
 Install the dependencies and run the automated suite:
