@@ -46,7 +46,7 @@ function unsafeUrl(raw) {
 // Pin outbound connections to DNS answers that are all public. Checking only the URL
 // hostname is insufficient: a public-looking hostname can resolve to loopback or
 // private addresses, and a separate preflight lookup would still allow rebinding.
-function publicDnsLookup(hostname, options, callback) {
+export function publicDnsLookup(hostname, options, callback) {
   dnsLookup(hostname, {
     family: options?.family || 0,
     hints: options?.hints || 0,
