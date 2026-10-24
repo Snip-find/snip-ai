@@ -195,3 +195,25 @@ test("DNS guard returns the same validated public addresses for connection pinni
     });
   });
 });
+
+
+test("allows a globally routable IPv6 PDF URL through URL validation", async () => {
+  const originalFetch = globalThis.fetch;
+  let fetchCount = 0;
+  globalThis.fetch = async () => {
+    fetchCount += 1;
+    return new Response("not a PDF", { status: 200, headers: { "content-type": "text/plain" } });
+  };
+  try {
+    const response = createResponse();
+    await pdfFindHandler({
+      method: "POST",
+      body: { url: "https://[2606:4700:4700::1111]/report.pdf", question: "What is the answer?" },
+      headers: {}
+    }, response);
+    assert.equal(fetchCount, 1);
+    assert.equal(response.statusCode, 415);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
