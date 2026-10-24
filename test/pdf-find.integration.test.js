@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import test from "node:test";
 
-const { default: pdfFindHandler, publicDnsLookup } = await import("../api/pdf-find.js");
+const { default: pdfFindHandler, publicDnsLookup, createPublicDnsLookup } = await import("../api/pdf-find.js");
 
 function createResponse() {
   return {
@@ -156,6 +156,38 @@ test("DNS lookup rejects hostnames resolving to loopback or private addresses", 
     publicDnsLookup("localhost", {}, error => {
       assert.ok(error, "localhost must not resolve as a permitted public PDF host");
       assert.match(error.message, /non-public network address/);
+      resolve();
+    });
+  });
+});
+
+
+test("DNS guard rejects a public-looking hostname with any private DNS answer", async () => {
+  const lookup = createPublicDnsLookup((_hostname, _options, callback) => {
+    callback(null, [
+      { address: "93.184.216.34", family: 4 },
+      { address: "127.0.0.1", family: 4 }
+    ]);
+  });
+  await new Promise(resolve => {
+    lookup("mixed-answer.example", {}, error => {
+      assert.ok(error);
+      assert.match(error.message, /non-public network address/);
+      resolve();
+    });
+  });
+});
+
+test("DNS guard returns the same validated public addresses for connection pinning", async () => {
+  const expected = [
+    { address: "93.184.216.34", family: 4 },
+    { address: "2606:4700:4700::1111", family: 6 }
+  ];
+  const lookup = createPublicDnsLookup((_hostname, _options, callback) => callback(null, expected));
+  await new Promise((resolve, reject) => {
+    lookup("public.example", { all: true }, (error, addresses) => {
+      if (error) return reject(error);
+      assert.deepEqual(addresses, expected);
       resolve();
     });
   });
