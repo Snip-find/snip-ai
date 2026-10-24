@@ -115,7 +115,7 @@ test("PDF preflight advertises cross-origin POST support without fetching a PDF"
   }
 });
 
-test("rejects IPv6 private targets and credential-bearing URLs before fetching", async () => {
+test("rejects private and special-use IPv4/IPv6 targets and credential-bearing URLs before fetching", async () => {
   const originalFetch = globalThis.fetch;
   let fetchCount = 0;
   globalThis.fetch = async () => { fetchCount += 1; throw new Error("Unsafe URL must not be fetched"); };
@@ -124,6 +124,9 @@ test("rejects IPv6 private targets and credential-bearing URLs before fetching",
       "http://[fc00::1]/secret.pdf",
       "http://[fe80::1]/secret.pdf",
       "http://[::ffff:172.16.0.1]/secret.pdf",
+      "http://[2001:2::1]/benchmark.pdf",
+      "http://[2001:db8::1]/documentation.pdf",
+      "http://[2002:7f00:1::]/6to4.pdf",
       "http://127.0.0.1/private.pdf",
       "http://user:pass@example.com/report.pdf"
     ]) {
