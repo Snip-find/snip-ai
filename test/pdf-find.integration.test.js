@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import test from "node:test";
 
-const { default: pdfFindHandler } = await import("../api/pdf-find.js");
+const { default: pdfFindHandler, publicDnsLookup } = await import("../api/pdf-find.js");
 
 function createResponse() {
   return {
@@ -148,4 +148,15 @@ test("validates redirect targets before fetching them", async () => {
     assert.equal(response.statusCode, 400);
     assert.deepEqual(requested, ["https://public.example/report.pdf"]);
   } finally { globalThis.fetch = originalFetch; }
+});
+
+
+test("DNS lookup rejects hostnames resolving to loopback or private addresses", async () => {
+  await new Promise(resolve => {
+    publicDnsLookup("localhost", {}, error => {
+      assert.ok(error, "localhost must not resolve as a permitted public PDF host");
+      assert.match(error.message, /non-public network address/);
+      resolve();
+    });
+  });
 });
