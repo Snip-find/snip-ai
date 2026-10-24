@@ -35,9 +35,16 @@ function unsafeUrl(raw) {
     }
     if (version === 6) {
       const ip = h.toLowerCase();
-      return ip === "::" || ip === "::1" || ip.startsWith("::ffff:") ||
-        /^f[cd][0-9a-f]{2}:/i.test(ip) || /^fe[89ab][0-9a-f]:/i.test(ip) ||
-        /^ff[0-9a-f]{2}:/i.test(ip) || /^2001:db8:/i.test(ip);
+      // Only permit globally routable IPv6 unicast (2000::/3). This blocks
+      // unspecified, loopback, ULA, link-local, multicast, mapped IPv4 and
+      // most special-use ranges by default instead of trying to enumerate them.
+      if (ip === "::" || ip === "::1" || ip.startsWith("::ffff:")) return true;
+      const firstHextet = Number.parseInt(ip.split(":")[0] || "0", 16);
+      if (!Number.isInteger(firstHextet) || firstHextet < 0x2000 || firstHextet > 0x3fff) return true;
+      // Explicitly deny documentation and 6to4, which can encapsulate addresses
+      // that are not safe destinations for a server-side fetch.
+      if (/^2001:db8:/i.test(ip) || /^2002:/i.test(ip)) return true;
+      return false;
     }
     return false;
   } catch { return true; }
