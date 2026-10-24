@@ -46,31 +46,35 @@ function unsafeUrl(raw) {
 // Pin outbound connections to DNS answers that are all public. Checking only the URL
 // hostname is insufficient: a public-looking hostname can resolve to loopback or
 // private addresses, and a separate preflight lookup would still allow rebinding.
-export function publicDnsLookup(hostname, options, callback) {
-  dnsLookup(hostname, {
+export function createPublicDnsLookup(resolve = dnsLookup) {
+  return function publicDnsLookup(hostname, options, callback) {
+    resolve(hostname, {
     family: options?.family || 0,
     hints: options?.hints || 0,
     all: true,
     verbatim: true
-  }, (error, addresses) => {
-    if (error) return callback(error);
-    if (!Array.isArray(addresses) || addresses.length === 0) {
-      return callback(new Error("The PDF host did not resolve to a public address."));
-    }
-    const hasUnsafeAddress = addresses.some(({ address }) => {
-      const host = String(address || "");
-      const urlHost = host.includes(":") ? `[${host}]` : host;
-      return unsafeUrl(`http://${urlHost}/`);
+    }, (error, addresses) => {
+      if (error) return callback(error);
+      if (!Array.isArray(addresses) || addresses.length === 0) {
+        return callback(new Error("The PDF host did not resolve to a public address."));
+      }
+      const hasUnsafeAddress = addresses.some(({ address }) => {
+        const host = String(address || "");
+        const urlHost = host.includes(":") ? `[${host}]` : host;
+        return unsafeUrl(`http://${urlHost}/`);
+      });
+      if (hasUnsafeAddress) {
+        return callback(new Error("The PDF host resolves to a non-public network address."));
+      }
+      // Return the validated DNS result itself so the socket connects to the
+      // checked address rather than performing a second, potentially rebinding lookup.
+      if (options?.all) return callback(null, addresses);
+      return callback(null, addresses[0].address, addresses[0].family);
     });
-    if (hasUnsafeAddress) {
-      return callback(new Error("The PDF host resolves to a non-public network address."));
-    }
-    // Return the validated DNS result itself so the socket connects to the
-    // checked address rather than performing a second, potentially rebinding lookup.
-    if (options?.all) return callback(null, addresses);
-    return callback(null, addresses[0].address, addresses[0].family);
-  });
+  };
 }
+
+export const publicDnsLookup = createPublicDnsLookup();
 
 function errorStatus(error, fallback = 500) {
   return Number.isInteger(error?.statusCode) ? error.statusCode : fallback;
