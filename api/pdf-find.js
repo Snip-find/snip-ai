@@ -54,7 +54,9 @@ function unsafeUrl(raw) {
       return false;
     }
     return false;
-  } catch { return true; }
+  } catch {
+    return true;
+  }
 }
 
 // Pin outbound connections to DNS answers that are all public. Checking only the URL
@@ -63,10 +65,10 @@ function unsafeUrl(raw) {
 export function createPublicDnsLookup(resolve = dnsLookup) {
   return function publicDnsLookup(hostname, options, callback) {
     resolve(hostname, {
-    family: options?.family || 0,
-    hints: options?.hints || 0,
-    all: true,
-    verbatim: true
+      family: options?.family || 0,
+      hints: options?.hints || 0,
+      all: true,
+      verbatim: true
     }, (error, addresses) => {
       if (error) return callback(error);
       if (!Array.isArray(addresses) || addresses.length === 0) {
@@ -154,7 +156,10 @@ function toBlocks(text, page) {
   for (const part of parts) {
     if (!buffer) buffer = part;
     else if ((buffer + " " + part).length <= 1800) buffer += " " + part;
-    else { result.push(buffer); buffer = part; }
+    else {
+      result.push(buffer);
+      buffer = part;
+    }
   }
   if (buffer) result.push(buffer);
   return result.map(text => ({ text, page }));
@@ -177,6 +182,15 @@ function captureResponse() {
       return this;
     }
   };
+}
+
+function isExplicitPrimaryStatementCashQuestion(question) {
+  return (
+    isCashPositionLookup(question) &&
+    /\b(?:statement of financial position|balance sheet|primary statement)\b/i.test(
+      String(question || "")
+    )
+  );
 }
 
 export default async function handler(req, res) {
@@ -287,11 +301,16 @@ export default async function handler(req, res) {
       });
     }
 
-    // For this statement line, a notes or reconciliation table is not a safe
-    // substitute when the primary statement is missing or the requested year
-    // is absent. Return no result rather than silently switching sections.
-    if (isCashPositionLookup(question)) {
-      return res.status(200).json({ answer: null, evidence: [], pageCount: Number(parsed.numpages || 0) });
+    // Only fail closed when the question explicitly asks for the primary
+    // Statement of Financial Position / balance-sheet figure. Broader questions
+    // about where the report discusses cash should continue through normal
+    // evidence search instead of returning an empty result prematurely.
+    if (isExplicitPrimaryStatementCashQuestion(question)) {
+      return res.status(200).json({
+        answer: null,
+        evidence: [],
+        pageCount: Number(parsed.numpages || 0)
+      });
     }
 
     const terms = [...new Set((question.toLowerCase().match(/[a-z0-9]{3,}/g) || []))];
