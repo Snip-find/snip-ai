@@ -165,6 +165,48 @@ function toBlocks(text, page) {
   return result.map(text => ({ text, page }));
 }
 
+async function extractScannedPdfPages(bytes, signal) {
+  const apiKey = String(process.env.SNIP_OCR_SPACE_API_KEY || "").trim();
+  if (!apiKey) return null;
+
+  // OCR is explicitly opt-in: configuring this key sends scanned document
+  // bytes to OCR.space for processing. Never send PDFs to a third party by default.
+  const form = new FormData();
+  form.append("file", new Blob([bytes], { type: "application/pdf" }), "snip-document.pdf");
+  form.append("filetype", "PDF");
+  form.append("isOverlayRequired", "false");
+  form.append("detectOrientation", "true");
+  form.append("scale", "true");
+  form.append("OCREngine", "2");
+
+  const response = await fetch("https://api.ocr.space/parse/image", {
+    method: "POST",
+    headers: { apikey: apiKey },
+    body: form,
+    signal
+  });
+  if (!response.ok) {
+    const error = new Error("The configured OCR service returned HTTP " + response.status + ".");
+    error.statusCode = 502;
+    throw error;
+  }
+
+  const result = await response.json();
+  if (result?.IsErroredOnProcessing) {
+    const details = Array.isArray(result.ErrorMessage)
+      ? result.ErrorMessage.join("; ")
+      : String(result.ErrorMessage || "OCR processing failed.");
+    const error = new Error("Could not read this scanned PDF: " + details);
+    error.statusCode = 422;
+    throw error;
+  }
+
+  const pages = Array.isArray(result?.ParsedResults) ? result.ParsedResults : [];
+  return pages.map((page, index) => ({
+    page: index + 1,
+    text: String(page?.ParsedText || "").trim()
+  }));
+}
 function captureResponse() {
   return {
     statusCode: 200,
@@ -262,17 +304,51 @@ export default async function handler(req, res) {
     const split = String(parsed.text || "").split(/\[\[SNIP_PAGE_(\d+)\]\]/g);
     const blocks = [];
     const financialRows = [];
+    const pagesWithoutText = [];
     let index = 0;
+    let pageCount = Number(parsed.numpages || 0);
     for (let i = 1; i < split.length; i += 2) {
       const page = Number(split[i]);
       const pageText = split[i + 1] || "";
+      pageCount = Math.max(pageCount, page);
       financialRows.push(...extractFinancialRows(pageText, page, financialRows.length));
-      for (const item of toBlocks(pageText, page)) {
+      const pageBlocks = toBlocks(pageText, page);
+      if (!pageBlocks.length) pagesWithoutText.push(page);
+      for (const item of pageBlocks) {
         blocks.push({ id: `pdf-${page}-${index}`, index: index++, text: item.text, section: `PDF page ${page}`, page });
       }
     }
+    if (pagesWithoutText.length && process.env.SNIP_OCR_SPACE_API_KEY) {
+      try {
+        const ocrPages = await withAbort(extractScannedPdfPages(bytes, controller.signal), controller.signal);
+        if (ocrPages) {
+          pageCount = Math.max(pageCount, ocrPages.length);
+          const missing = new Set(pagesWithoutText);
+          for (const { page, text } of ocrPages) {
+            if (!missing.has(page)) continue;
+            for (const item of toBlocks(text, page)) {
+              blocks.push({
+                id: `pdf-${page}-${index}`,
+                index: index++,
+                text: item.text,
+                section: `PDF page ${page}`,
+                page
+              });
+            }
+          }
+        }
+      } catch (error) {
+        // Preserve searchable text pages if optional OCR fails; scanned-only
+        // documents will still receive a clear error below.
+        if (!blocks.length) throw error;
+        console.error("Optional OCR failed for some PDF pages:", error?.message || error);
+      }
+    }
     if (!blocks.length) {
-      return res.status(422).json({ error: "This PDF has no readable text. Scanned-PDF OCR is not supported yet." });
+      const message = process.env.SNIP_OCR_SPACE_API_KEY
+        ? "This PDF has no readable text. The configured OCR service could not extract any text."
+        : "This PDF has no readable text. To enable scanned-PDF OCR, configure SNIP_OCR_SPACE_API_KEY. Scanned documents are sent to OCR.space only when this setting is enabled.";
+      return res.status(422).json({ error: message });
     }
 
     const financial = selectPrimaryFinancialEvidence(question, financialRows);
@@ -297,7 +373,7 @@ export default async function handler(req, res) {
         period: financial.period,
         sourceQuote: financial.sourceQuote,
         evidence: [evidence],
-        pageCount: Number(parsed.numpages || 0)
+        pageCount
       });
     }
 
@@ -309,7 +385,7 @@ export default async function handler(req, res) {
       return res.status(200).json({
         answer: null,
         evidence: [],
-        pageCount: Number(parsed.numpages || 0)
+        pageCount
       });
     }
 
@@ -342,7 +418,7 @@ export default async function handler(req, res) {
       if (!block) return null;
       return { ...item, page: block.page, text: String(item.text || item.passage || "").trim() };
     }).filter(item => item?.text && Number.isInteger(item.page) && item.page >= 1);
-    return res.status(200).json({ evidence: evidence.slice(0, 3), pageCount: Number(parsed.numpages || 0) });
+    return res.status(200).json({ evidence: evidence.slice(0, 3), pageCount });
   } catch (error) {
     console.error("Snip PDF search error:", error);
     const status = controller.signal.aborted ? 504 : errorStatus(error);
