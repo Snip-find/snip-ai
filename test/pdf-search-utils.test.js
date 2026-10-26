@@ -26,7 +26,7 @@ test("classifies consolidated primary statements separately from reconciliations
     "Primary consolidated statement of financial position"
   );
   assert.equal(
-    classifyFinancialSection("B. Reconciliation of net debt to statement of financial position\nCash and cash equivalents 864.5 1,022.4"),
+    classifyFinancialSection("B. Reconciliation of net debt to statement of financial position\nCash and cash equivalents 863.7 995.4"),
     "Reconciliation"
   );
 });
@@ -38,7 +38,7 @@ test("M&S-style FY2025 cash query selects the primary consolidated statement and
       text: [
         "FINANCIAL REVIEW CONTINUED",
         "The composition of Group net debt is as follows:",
-        "Cash and cash equivalents 1 864.5 1,022.4 (157.9)"
+        "Cash and cash equivalents 1 863.7 995.4 (157.9)"
       ].join("\n")
     },
     {
@@ -49,7 +49,7 @@ test("M&S-style FY2025 cash query selects the primary consolidated statement and
         "29 March 30 March 29 March 30 March",
         "2025 2024 2025 2024",
         "Notes £m £m Notes £m £m",
-        "Cash and cash equivalents 18 864.5 1,022.4 — —"
+        "Cash and cash equivalents 17 863.7 995.4 — —"
       ].join("\n")
     },
     {
@@ -57,7 +57,7 @@ test("M&S-style FY2025 cash query selects the primary consolidated statement and
       text: [
         "B. Reconciliation of net debt to statement of financial position",
         "2025 2024 £m £m",
-        "Cash and cash equivalents (see note 18) 864.5 1,022.4"
+        "Cash and cash equivalents (see note 17) 863.7 995.4"
       ].join("\n")
     }
   ];
@@ -71,11 +71,11 @@ test("M&S-style FY2025 cash query selects the primary consolidated statement and
   );
 
   assert.ok(result);
-  assert.equal(result.answer, "£864.5m");
+  assert.equal(result.answer, "£863.7m");
   assert.equal(result.period, "29 March 2025");
   assert.equal(result.row.page, 126);
   assert.equal(result.row.section, "Primary consolidated statement of financial position");
-  assert.equal(result.sourceQuote, "Cash and cash equivalents 18 864.5 1,022.4 — —");
+  assert.equal(result.sourceQuote, "Cash and cash equivalents 17 863.7 995.4 — —");
 });
 
 test("period selection uses the requested comparative year", () => {
@@ -93,7 +93,7 @@ test("period selection uses the requested comparative year", () => {
     rows
   );
 
-  assert.equal(result?.answer, "£1,022.4m");
+  assert.equal(result?.answer, "£995.4m");
   assert.equal(result?.period, "30 March 2024");
 });
 
@@ -101,7 +101,7 @@ test("does not use a reconciliation when no primary statement row exists", () =>
   const rows = extractFinancialRows([
     "B. Reconciliation of net debt to statement of financial position",
     "2025 2024 £m £m",
-    "Cash and cash equivalents 864.5 1,022.4"
+    "Cash and cash equivalents 863.7 995.4"
   ].join("\n"), 181);
 
   assert.equal(
