@@ -6,7 +6,7 @@ This repository contains Snip's serverless search endpoints and public website.
 
 Set `OPENAI_API_KEY` in the hosting provider's secret/environment-variable settings for AI-assisted searches. Do not commit the key or put it in client-side extension code.
 
-`api/find.js` searches supplied webpage/document text. `api/pdf-find.js` fetches a public PDF URL, extracts readable text, and returns source evidence with its PDF page number. Scanned PDFs are not OCR'd.
+`api/find.js` searches supplied webpage/document text. `api/pdf-find.js` fetches a public PDF URL, extracts readable text, and returns source evidence with its PDF page number. The extractor attempts to preserve visual reading order and separate multi-column text, but PDF layouts vary and extraction quality depends on the source file. Scanned/image-only PDFs are not OCR'd yet; Snip reports that limitation rather than pretending it found readable evidence.
 
 
 ## PDF fetch security

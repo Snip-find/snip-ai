@@ -113,20 +113,23 @@ const joined = items
     const gap =
       current.x - (previous.x + Math.max(0, Number(previous.width) || 0));
 
-    if (gap < 90) continue;
+    // PDF columns are often separated by a large horizontal gap. The
+    // previous conservative threshold missed short column fragments, causing
+    // text from unrelated columns to be joined and then highlighted as one quote.
+    if (gap < 55) continue;
 
     const left = items.slice(0, i).map(item => item.text).join(" ").trim();
     const right = items.slice(i).map(item => item.text).join(" ").trim();
 
-    const leftWords = (left.match(/[A-Za-z]{2,}/g) || []).length;
-    const rightWords = (right.match(/[A-Za-z]{2,}/g) || []).length;
+    const leftWords = (left.match(/[\p{L}\p{N}]{2,}/gu) || []).length;
+    const rightWords = (right.match(/[\p{L}\p{N}]{2,}/gu) || []).length;
     const rightMostlyNumeric = /^[\s£€$()\d,.%+\-–—]+$/.test(right);
 
     if (
-      left.length >= 25 &&
-      right.length >= 25 &&
-      leftWords >= 4 &&
-      rightWords >= 4 &&
+      left.length >= 16 &&
+      right.length >= 16 &&
+      leftWords >= 2 &&
+      rightWords >= 2 &&
       !rightMostlyNumeric
     ) {
       splitAt = i;

@@ -186,3 +186,29 @@ test("fails closed when extracted financial row has fewer values than reported p
     null
   );
 });
+
+
+test("separates short text fragments in two-column layouts", () => {
+  const lines = extractPageLines([
+    { str: "Eligibility rules", width: 100, transform: [1, 0, 0, 1, 40, 100] },
+    { str: "Payment due dates", width: 100, transform: [1, 0, 0, 1, 260, 100] },
+    { str: "Applicants must be over 18", width: 140, transform: [1, 0, 0, 1, 40, 80] },
+    { str: "Paid every Friday", width: 100, transform: [1, 0, 0, 1, 260, 80] }
+  ]);
+
+  assert.deepEqual(lines, [
+    "Eligibility rules",
+    "Payment due dates",
+    "Applicants must be over 18",
+    "Paid every Friday"
+  ]);
+});
+
+test("does not split a label and its numeric value into separate columns", () => {
+  const lines = extractPageLines([
+    { str: "Total due", width: 70, transform: [1, 0, 0, 1, 40, 100] },
+    { str: "$1,250.00", width: 65, transform: [1, 0, 0, 1, 250, 100] }
+  ]);
+
+  assert.deepEqual(lines, ["Total due $1,250.00"]);
+});
