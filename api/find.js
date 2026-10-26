@@ -184,40 +184,12 @@ export default async function handler(req, res) {
       evidence = normalizeModelEvidence(modelResult, candidates, cleanBlocks);
     }
 
-    // DETERMINISTIC FALLBACK
-    if (!evidence.length) {
-      const best = findBestDeterministicSentence(ranked, info);
-
-      if (best) {
-        evidence = [{
-          block_index: best.block_index,
-          block_id: best.block_id,
-          passage: best.sentence,
-          section: best.section,
-          page: best.page ?? null
-        }];
-      }
-    }
-
-    // FINAL VALIDATION
+    // FINAL VALIDATION: fail closed instead of guessing.
     if (evidence.length) {
       evidence = dedupeEvidence(evidence);
 
       if (shouldUseDeterministicOverride(evidence, info)) {
-        const best = findBestDeterministicSentence(ranked, info);
-
-        if (best) {
-          evidence = [{
-            block_index: best.block_index,
-            block_id: best.block_id,
-            passage: best.sentence,
-            section: best.section,
-            page: best.page ?? null
-          }];
-        } else {
-          // Never return evidence that failed final validation.
-          evidence = [];
-        }
+        evidence = [];
       }
     }
 
@@ -230,6 +202,7 @@ export default async function handler(req, res) {
     });
   }
 }
+
 
 
 /* ============================================================
