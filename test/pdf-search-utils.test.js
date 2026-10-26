@@ -191,7 +191,7 @@ test("fails closed when extracted financial row has fewer values than reported p
 test("separates short text fragments in two-column layouts", () => {
   const lines = extractPageLines([
     { str: "Eligibility rules", width: 100, transform: [1, 0, 0, 1, 40, 100] },
-    { str: "Payment dates", width: 100, transform: [1, 0, 0, 1, 260, 100] },
+    { str: "Payment due dates", width: 100, transform: [1, 0, 0, 1, 260, 100] },
     { str: "Applicants must be over 18", width: 140, transform: [1, 0, 0, 1, 40, 80] },
     { str: "Paid every Friday", width: 100, transform: [1, 0, 0, 1, 260, 80] }
   ]);
