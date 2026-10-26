@@ -232,7 +232,7 @@ const periods = [];
 // Do not deduplicate repeated periods: consolidated and company statements
 // may show the same reporting dates in separate columns.
 for (let index = 0; index < Math.min(years.length, dates.length); index += 1) {
-periods.push("${dates[index]} ${years[index]}");
+periods.push(`${dates[index]} ${years[index]}`);
 }
 
 if (!periods.length) {
@@ -327,11 +327,11 @@ function formatAnswer(value, header) {
 if (!value) return null;
 if (/^[—–-]$/.test(value)) return value;
 
-const number = value.replace(/^(/, "-").replace(/)$/, "");
+const number = value.replace(/^\(/, "-").replace(/\)$/, "");
 
-if (/£m\b/i.test(header)) return "£${number}m";
-if (/€m\b/i.test(header)) return "€${number}m";
-if (/$m\b/i.test(header)) return "$${number}m";
+if (/£m\b/i.test(header)) return `£${number}m`;
+if (/€m\b/i.test(header)) return `€${number}m`;
+if (/$m\b/i.test(header)) return `${number}m`;
 
 return value;
 }
@@ -397,7 +397,7 @@ const valueIndex = selectedYear ? years.indexOf(selectedYear) : 0;
 if (valueIndex < 0 || valueIndex >= periodValues.length) return null;
 
 const period = periods[valueIndex] ||
-(selectedYear ? "FY${selectedYear}" : null);
+(selectedYear ? `FY${selectedYear}` : null);
 
 const answer = formatAnswer(
 periodValues[valueIndex],
