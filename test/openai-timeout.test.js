@@ -27,7 +27,7 @@ function createResponse() {
   };
 }
 
-test("OpenAI timeout falls back to source-matched evidence", async () => {
+test("OpenAI timeout fails closed without verified evidence", async () => {
   const originalFetch = globalThis.fetch;
   const originalError = console.error;
   console.error = () => {};
@@ -50,7 +50,7 @@ test("OpenAI timeout falls back to source-matched evidence", async () => {
     }, response);
 
     assert.equal(response.statusCode, 200);
-    assert.equal(response.body.evidence[0].passage, source);
+    assert.deepEqual(response.body.evidence, []);
   } finally {
     globalThis.fetch = originalFetch;
     console.error = originalError;
