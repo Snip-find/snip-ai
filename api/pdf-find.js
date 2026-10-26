@@ -165,7 +165,7 @@ function toBlocks(text, page) {
   return result.map(text => ({ text, page }));
 }
 
-async function extractScannedPdfPages(bytes, signal) {
+export async function extractScannedPdfPages(bytes, signal) {
   const apiKey = String(process.env.SNIP_OCR_SPACE_API_KEY || "").trim();
   if (!apiKey) return null;
 
