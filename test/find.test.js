@@ -26,7 +26,7 @@ function createResponse() {
   };
 }
 
-test("shortened model quote is rejected and the source sentence is returned", async () => {
+test("shortened model quote is rejected rather than returned as evidence", async () => {
   const originalFetch = globalThis.fetch;
   const source = "Cash and cash equivalents 18 864.5 1,022.4";
   globalThis.fetch = async () => new Response(JSON.stringify({
@@ -47,8 +47,8 @@ test("shortened model quote is rejected and the source sentence is returned", as
     }, response);
 
     assert.equal(response.statusCode, 200);
-    assert.equal(response.body.evidence[0].passage, source);
-    assert.equal(response.body.evidence[0].page, 126);
+    assert.deepEqual(response.body.evidence, []);
+    // A shortened quote is not accepted as locatable evidence.
   } finally {
     globalThis.fetch = originalFetch;
   }
