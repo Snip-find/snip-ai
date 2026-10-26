@@ -212,7 +212,7 @@ return lines
 .slice(headingIndex + 1, headingIndex + 10)
 .filter(line =>
 /\b20\d{2}\b|£m|€m|\bas at\b|\bended\b|\bweeks?\b/i.test(line) ||
-new RegExp("\\b${MONTH_PATTERN}\\b", "i").test(line)
+new RegExp(`\\b${MONTH_PATTERN}\\b`, "i").test(line)
 )
 .join(" | ");
 }
@@ -223,7 +223,7 @@ const years = [...String(header).matchAll(/\b20\d{2}\b/g)]
 
 const dates = [
 ...String(header).matchAll(
-new RegExp("\\b\\d{1,2}\\s+${MONTH_PATTERN}\\b", "gi")
+new RegExp(`\\b\\d{1,2}\\s+${MONTH_PATTERN}\\b`, "gi")
 )
 ].map(match => match[0]);
 
@@ -316,11 +316,14 @@ function valuesFromRow(row) {
 const start = normalized(row.text).indexOf(row.label) + row.label.length;
 const tail = row.text.slice(start);
 
+// Capture whole numeric cells, including thousands separators and decimals.
+// A literal decimal point is important: a wildcard here can split values
+// and silently turn 1,022.4 into incomplete numeric tokens.
 return [
 ...tail.matchAll(
-/(?:(\s*[\d,]+(?:.\d+)?\s*)|-?\s*[\d,]+(?:.\d+)?|[—–])/g
+/(?:\\(\\s*\\d[\\d,]*(?:\\.\\d+)?\\s*\\)|-?\\s*\\d[\\d,]*(?:\\.\\d+)?|[—–-])/g
 )
-].map(match => match[0].replace(/\s+/g, "").trim());
+].map(match => match[0].replace(/\\s+/g, "").trim());
 }
 
 function formatAnswer(value, header) {
