@@ -304,31 +304,44 @@ export default async function handler(req, res) {
     const split = String(parsed.text || "").split(/\[\[SNIP_PAGE_(\d+)\]\]/g);
     const blocks = [];
     const financialRows = [];
+    const pagesWithoutText = [];
     let index = 0;
+    let pageCount = Number(parsed.numpages || 0);
     for (let i = 1; i < split.length; i += 2) {
       const page = Number(split[i]);
       const pageText = split[i + 1] || "";
+      pageCount = Math.max(pageCount, page);
       financialRows.push(...extractFinancialRows(pageText, page, financialRows.length));
-      for (const item of toBlocks(pageText, page)) {
+      const pageBlocks = toBlocks(pageText, page);
+      if (!pageBlocks.length) pagesWithoutText.push(page);
+      for (const item of pageBlocks) {
         blocks.push({ id: `pdf-${page}-${index}`, index: index++, text: item.text, section: `PDF page ${page}`, page });
       }
     }
-    let pageCount = Number(parsed.numpages || 0);
-    if (!blocks.length) {
-      const ocrPages = await withAbort(extractScannedPdfPages(bytes, controller.signal), controller.signal);
-      if (ocrPages) {
-        pageCount = ocrPages.length;
-        for (const { page, text } of ocrPages) {
-          for (const item of toBlocks(text, page)) {
-            blocks.push({
-              id: `pdf-${page}-${index}`,
-              index: index++,
-              text: item.text,
-              section: `PDF page ${page}`,
-              page
-            });
+    if (pagesWithoutText.length && process.env.SNIP_OCR_SPACE_API_KEY) {
+      try {
+        const ocrPages = await withAbort(extractScannedPdfPages(bytes, controller.signal), controller.signal);
+        if (ocrPages) {
+          pageCount = Math.max(pageCount, ocrPages.length);
+          const missing = new Set(pagesWithoutText);
+          for (const { page, text } of ocrPages) {
+            if (!missing.has(page)) continue;
+            for (const item of toBlocks(text, page)) {
+              blocks.push({
+                id: `pdf-${page}-${index}`,
+                index: index++,
+                text: item.text,
+                section: `PDF page ${page}`,
+                page
+              });
+            }
           }
         }
+      } catch (error) {
+        // Preserve searchable text pages if optional OCR fails; scanned-only
+        // documents will still receive a clear error below.
+        if (!blocks.length) throw error;
+        console.error("Optional OCR failed for some PDF pages:", error?.message || error);
       }
     }
     if (!blocks.length) {
