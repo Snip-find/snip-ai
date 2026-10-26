@@ -317,13 +317,11 @@ const start = normalized(row.text).indexOf(row.label) + row.label.length;
 const tail = row.text.slice(start);
 
 // Capture whole numeric cells, including thousands separators and decimals.
-// A literal decimal point is important: a wildcard here can split values
-// and silently turn 1,022.4 into incomplete numeric tokens.
 return [
 ...tail.matchAll(
-/(?:\\(\\s*\\d[\\d,]*(?:\\.\\d+)?\\s*\\)|-?\\s*\\d[\\d,]*(?:\\.\\d+)?|[—–-])/g
+/(?:\(\s*\d[\d,]*(?:\.\d+)?\s*\)|-?\s*\d[\d,]*(?:\.\d+)?|[—–-])/g
 )
-].map(match => match[0].replace(/\\s+/g, "").trim());
+].map(match => match[0].replace(/\s+/g, "").trim());
 }
 
 function formatAnswer(value, header) {
@@ -334,7 +332,7 @@ const number = value.replace(/^\(/, "-").replace(/\)$/, "");
 
 if (/£m\b/i.test(header)) return `£${number}m`;
 if (/€m\b/i.test(header)) return `€${number}m`;
-if (/$m\b/i.test(header)) return `${number}m`;
+if (/\$m\b/i.test(header)) return `${number}m`;
 
 return value;
 }
