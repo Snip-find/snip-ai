@@ -205,7 +205,7 @@ async function extractScannedPdfPages(bytes, signal) {
   return pages.map((page, index) => ({
     page: index + 1,
     text: String(page?.ParsedText || "").trim()
-  })).filter(page => page.text);
+  }));
 }
 function captureResponse() {
   return {
