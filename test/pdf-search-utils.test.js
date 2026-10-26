@@ -85,7 +85,7 @@ test("period selection uses the requested comparative year", () => {
     "29 March 30 March",
     "2025 2024",
     "Notes £m £m",
-    "Cash and cash equivalents 18 864.5 1,022.4"
+    "Cash and cash equivalents 17 863.7 995.4"
   ].join("\n"), 126);
 
   const result = selectPrimaryFinancialEvidence(
