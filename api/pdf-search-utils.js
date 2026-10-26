@@ -1,280 +1,415 @@
 const FINANCIAL_LABELS = [
-  "cash and cash equivalents at beginning and end of year",
-  "cash and cash equivalents",
-  "total comprehensive income",
-  "profit before tax",
-  "profit for the year",
-  "operating profit",
-  "total liabilities",
-  "total assets",
-  "net assets",
-  "revenue",
-  "turnover"
+"cash and cash equivalents at beginning and end of year",
+"cash and cash equivalents",
+"total comprehensive income",
+"profit before tax",
+"profit for the year",
+"operating profit",
+"total liabilities",
+"total assets",
+"net assets",
+"revenue",
+"turnover"
 ];
 
 const MONTH_PATTERN =
-  "(?:January|February|March|April|May|June|July|August|September|October|November|December)";
+"(?:January|February|March|April|May|June|July|August|September|October|November|December)";
 
 function cleanLine(value) {
-  return String(value || "")
-    .replace(/\u00ad/g, "")
-    .replace(/[ \t]+/g, " ")
-    .trim();
+return String(value || "")
+.replace(/\u00ad/g, "")
+.replace(/[ \t]+/g, " ")
+.trim();
 }
 
 function normalized(value) {
-  return cleanLine(value)
-    .toLowerCase()
-    .replace(/[’‘]/g, "'")
-    .replace(/[–—]/g, "-")
-    .replace(/\s+/g, " ");
+return cleanLine(value)
+.toLowerCase()
+.replace(/[’‘]/g, "'")
+.replace(/[–—]/g, "-")
+.replace(/\s+/g, " ");
+}
+
+function financialHeadingType(value) {
+const text = normalized(value)
+.replace(/[\r\n]+/g, " ")
+.replace(/\s+/g, " ")
+.trim();
+
+if (/\b(?:reconciliation of net debt|net debt reconciliation)\b/i.test(text)) {
+return "Reconciliation";
+}
+
+if (/\b(?:financial review|composition of group net debt)\b/i.test(text)) {
+return "Financial review";
+}
+
+if (
+/\b(?:consolidated|group)\s+(?:statement of financial position|balance sheet)(?:\s+continued)?\b/i.test(text)
+) {
+return "Primary consolidated statement of financial position";
+}
+
+if (
+/\b(?:company|parent company)\s+(?:statement of financial position|balance sheet)(?:\s+continued)?\b/i.test(text)
+) {
+return "Primary company statement of financial position";
+}
+
+return "Other";
 }
 
 export function extractPageLines(items) {
-  const rows = [];
-  const fallback = [];
+const rows = [];
+const fallback = [];
 
-  for (const item of Array.isArray(items) ? items : []) {
-    const text = cleanLine(item?.str);
-    if (!text) continue;
+for (const item of Array.isArray(items) ? items : []) {
+const text = cleanLine(item?.str);
+if (!text) continue;
 
-    const x = Number(item?.transform?.[4]);
-    const y = Number(item?.transform?.[5]);
-    if (!Number.isFinite(x) || !Number.isFinite(y)) {
-      fallback.push(text);
-      continue;
+const x = Number(item?.transform?.[4]);
+const y = Number(item?.transform?.[5]);
+
+if (!Number.isFinite(x) || !Number.isFinite(y)) {
+  fallback.push(text);
+  continue;
+}
+
+let row = rows.find(candidate => Math.abs(candidate.y - y) < 1.5);
+
+if (!row) {
+  row = { y, items: [] };
+  rows.push(row);
+}
+
+row.items.push({
+  x,
+  y,
+  width: Number(item?.width) || 0,
+  text
+});
+
+}
+
+if (!rows.length) return fallback;
+
+const positioned = rows
+.sort((a, b) => b.y - a.y)
+.flatMap(row => {
+const items = row.items.sort((a, b) => a.x - b.x);
+const joined = items
+.map(item => item.text)
+.join(" ")
+.replace(/\s+/g, " ")
+.trim();
+
+  if (!joined) return [];
+
+  let splitAt = -1;
+
+  for (let i = 1; i < items.length; i += 1) {
+    const previous = items[i - 1];
+    const current = items[i];
+    const gap =
+      current.x - (previous.x + Math.max(0, Number(previous.width) || 0));
+
+    if (gap < 90) continue;
+
+    const left = items.slice(0, i).map(item => item.text).join(" ").trim();
+    const right = items.slice(i).map(item => item.text).join(" ").trim();
+
+    const leftWords = (left.match(/[A-Za-z]{2,}/g) || []).length;
+    const rightWords = (right.match(/[A-Za-z]{2,}/g) || []).length;
+    const rightMostlyNumeric = /^[\s£€$()\d,.%+\-–—]+$/.test(right);
+
+    if (
+      left.length >= 25 &&
+      right.length >= 25 &&
+      leftWords >= 4 &&
+      rightWords >= 4 &&
+      !rightMostlyNumeric
+    ) {
+      splitAt = i;
+      break;
     }
-
-    let row = rows.find(candidate => Math.abs(candidate.y - y) < 1.5);
-    if (!row) {
-      row = { y, items: [] };
-      rows.push(row);
-    }
-    row.items.push({ x, y, width: Number(item?.width) || 0, text });
   }
 
-  if (!rows.length) return fallback;
+  if (splitAt < 0) return [joined];
 
-  // Separate prose columns sharing a baseline; preserve short-label/numeric table rows.
-  const positioned = rows
-    .sort((a, b) => b.y - a.y)
-    .flatMap(row => {
-      const items = row.items.sort((a, b) => a.x - b.x);
-      const joined = items.map(item => item.text).join(" ").replace(/\s+/g, " ").trim();
-      if (!joined) return [];
-      let splitAt = -1;
-      for (let i = 1; i < items.length; i += 1) {
-        const previous = items[i - 1];
-        const current = items[i];
-        const gap = current.x - (previous.x + Math.max(0, Number(previous.width) || 0));
-        if (gap < 90) continue;
-        const left = items.slice(0, i).map(item => item.text).join(" ").trim();
-        const right = items.slice(i).map(item => item.text).join(" ").trim();
-        const leftWords = (left.match(/[A-Za-z]{2,}/g) || []).length;
-        const rightWords = (right.match(/[A-Za-z]{2,}/g) || []).length;
-        const rightMostlyNumeric = /^[\s£€$()\d,.%+\-–—]+$/.test(right);
-        if (left.length >= 25 && right.length >= 25 && leftWords >= 4 &&
-            rightWords >= 4 && !rightMostlyNumeric) {
-          splitAt = i;
-          break;
-        }
-      }
-      if (splitAt < 0) return [joined];
-      return [
-        items.slice(0, splitAt).map(item => item.text).join(" ").replace(/\s+/g, " ").trim(),
-        items.slice(splitAt).map(item => item.text).join(" ").replace(/\s+/g, " ").trim()
-      ].filter(Boolean);
-    })
-    .filter(Boolean);
+  return [
+    items.slice(0, splitAt).map(item => item.text).join(" ").replace(/\s+/g, " ").trim(),
+    items.slice(splitAt).map(item => item.text).join(" ").replace(/\s+/g, " ").trim()
+  ].filter(Boolean);
+})
+.filter(Boolean);
 
-  return fallback.length ? [...positioned, ...fallback] : positioned;
+return fallback.length ? [...positioned, ...fallback] : positioned;
 }
 
 export function classifyFinancialSection(pageText) {
-  const lines = String(pageText || "")
-    .split(/\n+/)
-    .map(cleanLine)
-    .filter(Boolean);
-  const text = lines.join("\n");
+const lines = String(pageText || "")
+.split(/\n+/)
+.map(cleanLine)
+.filter(Boolean);
 
-  if (/reconciliation of net debt|statement of financial position and related notes/i.test(text)) {
-    return "Reconciliation";
-  }
+if (!lines.length) return "Other";
 
-  if (/financial review|composition of group net debt/i.test(text)) {
-    return "Financial review";
-  }
+// Explicit reconciliation headings take precedence over references to
+// statements that may occur elsewhere on the same page.
+const allText = lines.join(" ");
+const topText = lines.slice(0, 24).join(" ");
 
-  if (/^\s*(?:consolidated|group)\s+(?:statement of financial position|balance sheet)(?:\s+continued)?\s*$/im.test(text)) {
-    return "Primary consolidated statement of financial position";
-  }
+if (/\b(?:reconciliation of net debt|net debt reconciliation)\b/i.test(topText)) {
+return "Reconciliation";
+}
 
-  if (/^\s*(?:company|parent company)\s+(?:statement of financial position|balance sheet)(?:\s+continued)?\s*$/im.test(text)) {
-    return "Primary company statement of financial position";
-  }
+if (/\b(?:financial review|composition of group net debt)\b/i.test(topText)) {
+return "Financial review";
+}
 
-  return "Other";
+// PDF extraction can split a heading across multiple text items or lines.
+// Check the page's opening lines as joined text instead of requiring the
+// heading to occupy one perfectly extracted line.
+const topSection = financialHeadingType(topText);
+
+if (topSection.startsWith("Primary ")) {
+return topSection;
+}
+
+// Some PDFs include introductory material before the statement heading.
+// Only accept a primary-statement heading elsewhere when the page is not
+// explicitly identified as a net-debt reconciliation.
+const allSection = financialHeadingType(allText);
+
+if (allSection.startsWith("Primary ")) {
+return allSection;
+}
+
+return "Other";
+}
+
+function findHeadingIndex(lines, headingPattern) {
+for (let i = 0; i < lines.length; i += 1) {
+if (headingPattern.test(lines[i])) return i;
+
+// Accommodate headings split into adjacent extracted lines.
+if (i + 1 < lines.length) {
+  const combined = `${lines[i]} ${lines[i + 1]}`;
+
+  if (headingPattern.test(combined)) return i + 1;
+}
+
+}
+
+return -1;
 }
 
 function periodHeader(lines, headingPattern) {
-  const headingIndex = lines.findIndex(line => headingPattern.test(line));
-  if (headingIndex < 0) return "";
+const headingIndex = findHeadingIndex(lines, headingPattern);
+if (headingIndex < 0) return "";
 
-  return lines
-    .slice(headingIndex + 1, headingIndex + 8)
-    .filter(line =>
-      /\b20\d{2}\b|£m|€m|\bas at\b|\bended\b|\bweeks?\b/i.test(line) ||
-      new RegExp(`\\b${MONTH_PATTERN}\\b`, "i").test(line)
-    )
-    .join(" | ");
+return lines
+.slice(headingIndex + 1, headingIndex + 10)
+.filter(line =>
+/\b20\d{2}\b|£m|€m|\bas at\b|\bended\b|\bweeks?\b/i.test(line) ||
+new RegExp("\\b${MONTH_PATTERN}\\b", "i").test(line)
+)
+.join(" | ");
 }
 
 function periodsFromHeader(header) {
-  const years = [...String(header).matchAll(/\b20\d{2}\b/g)].map(match => match[0]);
-  const dates = [...String(header).matchAll(new RegExp(`\\b\\d{1,2}\\s+${MONTH_PATTERN}\\b`, "gi"))]
-    .map(match => match[0]);
-  const periods = [];
+const years = [...String(header).matchAll(/\b20\d{2}\b/g)]
+.map(match => match[0]);
 
-  // Do not deduplicate repeated periods: consolidated and company statements
-  // can share the same dates side by side. Each header occurrence represents a
-  // separate value column and must remain aligned with the row's cell order.
-  for (let index = 0; index < Math.min(years.length, dates.length); index += 1) {
-    periods.push(`${dates[index]} ${years[index]}`);
-  }
+const dates = [
+...String(header).matchAll(
+new RegExp("\\b\\d{1,2}\\s+${MONTH_PATTERN}\\b", "gi")
+)
+].map(match => match[0]);
 
-  if (!periods.length) {
-    // Preserve repeated years for the same reason when dates are unavailable.
-    for (const year of years) periods.push(year);
-  }
+const periods = [];
 
-  return periods;
+// Do not deduplicate repeated periods: consolidated and company statements
+// may show the same reporting dates in separate columns.
+for (let index = 0; index < Math.min(years.length, dates.length); index += 1) {
+periods.push("${dates[index]} ${years[index]}");
+}
+
+if (!periods.length) {
+for (const year of years) periods.push(year);
+}
+
+return periods;
 }
 
 export function extractFinancialRows(pageText, page, indexOffset = 0) {
-  const lines = String(pageText || "")
-    .split(/\n+/)
-    .map(cleanLine)
-    .filter(Boolean);
-  const section = classifyFinancialSection(lines.join("\n"));
+const lines = String(pageText || "")
+.split(/\n+/)
+.map(cleanLine)
+.filter(Boolean);
 
-  if (!section.startsWith("Primary ")) return [];
+const section = classifyFinancialSection(lines.join("\n"));
 
-  const headingPattern = section.includes("company")
-    ? /^\s*(?:company|parent company)\s+(?:statement of financial position|balance sheet)(?:\s+continued)?\s*$/i
-    : /^\s*(?:consolidated|group)\s+(?:statement of financial position|balance sheet)(?:\s+continued)?\s*$/i;
-  const context = periodHeader(lines, headingPattern);
-  const rows = [];
+if (!section.startsWith("Primary ")) return [];
 
-  for (const line of lines) {
-    const lineText = normalized(line);
-    const label = FINANCIAL_LABELS.find(candidate =>
-      lineText === candidate || lineText.startsWith(`${candidate} `)
-    );
-    if (!label) continue;
+const headingPattern = section.includes("company")
+? /\b(?:company|parent company)\s+(?:statement of financial position|balance sheet)(?:\s+continued)?\b/i
+: /\b(?:consolidated|group)\s+(?:statement of financial position|balance sheet)(?:\s+continued)?\b/i;
 
-    const remainder = lineText.slice(label.length);
-    if (!/[\d—–-]/.test(remainder)) continue;
+const context = periodHeader(lines, headingPattern);
+const rows = [];
 
-    const index = indexOffset + rows.length;
-    rows.push({
-      id: `pdf-${page}-${index}`,
-      index,
-      label,
-      text: line,
-      page,
-      section,
-      periodContext: context
-    });
-  }
+for (const line of lines) {
+const lineText = normalized(line);
 
-  return rows;
+const label = FINANCIAL_LABELS.find(candidate =>
+  lineText === candidate || lineText.startsWith(`${candidate} `)
+);
+
+if (!label) continue;
+
+const remainder = lineText.slice(label.length);
+
+// Require a numeric or dash-like cell after the label.
+if (!/[\d—–-]/.test(remainder)) continue;
+
+const index = indexOffset + rows.length;
+
+rows.push({
+  id: `pdf-${page}-${index}`,
+  index,
+  label,
+  text: line,
+  page,
+  section,
+  periodContext: context
+});
+
+}
+
+return rows;
 }
 
 function requestedFinancialLabel(question) {
-  const q = normalized(question);
-  if (/\b(?:why|explain|definition|define|meaning|reconciliation|reconcile|movement|change|changed|caused|how did|what drove)\b/.test(q)) {
-    return null;
-  }
+const q = normalized(question);
 
-  return FINANCIAL_LABELS.find(label => q.includes(label)) || null;
+if (
+/\b(?:why|explain|definition|define|meaning|reconciliation|reconcile|movement|change|changed|caused|how did|what drove)\b/.test(q)
+) {
+return null;
+}
+
+return FINANCIAL_LABELS.find(label => q.includes(label)) || null;
 }
 
 export function isCashPositionLookup(question) {
-  return requestedFinancialLabel(question) === "cash and cash equivalents";
+return requestedFinancialLabel(question) === "cash and cash equivalents";
 }
 
 function requestedYear(question) {
-  return String(question || "").match(/\b(?:FY|financial year|fiscal year|year ended|year ending|as at|for|in)?\s*(20\d{2})\b/i)?.[1] || null;
+return String(question || "").match(
+/\b(?:FY|financial year|fiscal year|year ended|year ending|as at|for|in)?\s*(20\d{2})\b/i
+)?.[1] || null;
 }
 
 function valuesFromRow(row) {
-  const start = normalized(row.text).indexOf(row.label) + row.label.length;
-  const tail = row.text.slice(start);
-  return [...tail.matchAll(/(?:\(\s*[\d,]+(?:\.\d+)?\s*\)|-?\s*[\d,]+(?:\.\d+)?|[—–])/g)]
-    .map(match => match[0].replace(/\s+/g, "").trim());
+const start = normalized(row.text).indexOf(row.label) + row.label.length;
+const tail = row.text.slice(start);
+
+return [
+...tail.matchAll(
+/(?:(\s*[\d,]+(?:.\d+)?\s*)|-?\s*[\d,]+(?:.\d+)?|[—–])/g
+)
+].map(match => match[0].replace(/\s+/g, "").trim());
 }
 
 function formatAnswer(value, header) {
-  if (!value) return null;
-  if (/^[—–-]$/.test(value)) return value;
-  if (/£m\b/i.test(header)) return `£${value.replace(/^\(/, "-").replace(/\)$/, "")}m`;
-  if (/€m\b/i.test(header)) return `€${value.replace(/^\(/, "-").replace(/\)$/, "")}m`;
-  if (/\$m\b/i.test(header)) return `$${value.replace(/^\(/, "-").replace(/\)$/, "")}m`;
-  return value;
+if (!value) return null;
+if (/^[—–-]$/.test(value)) return value;
+
+const number = value.replace(/^(/, "-").replace(/)$/, "");
+
+if (/£m\b/i.test(header)) return "£${number}m";
+if (/€m\b/i.test(header)) return "€${number}m";
+if (/$m\b/i.test(header)) return "$${number}m";
+
+return value;
 }
 
 export function selectPrimaryFinancialEvidence(question, rows) {
-  const label = requestedFinancialLabel(question);
-  if (!label) return null;
+const label = requestedFinancialLabel(question);
+if (!label) return null;
 
-  const candidates = (Array.isArray(rows) ? rows : [])
-    .filter(row => row.label === label)
-    .filter(row => row.section?.startsWith("Primary "));
-  if (!candidates.length) return null;
+const candidates = (Array.isArray(rows) ? rows : [])
+.filter(row => row.label === label)
+.filter(row => row.section?.startsWith("Primary "));
 
-  const wantsCompany = /\b(?:company|parent company|parent entity)\b/i.test(question);
-  const preferredSection = wantsCompany
-    ? "Primary company statement of financial position"
-    : "Primary consolidated statement of financial position";
-  const preferred = candidates.filter(row => row.section === preferredSection);
-  let ranked = preferred.length ? preferred : candidates;
+if (!candidates.length) return null;
 
-  const year = requestedYear(question);
-  if (year) {
-    const matchingYear = ranked.filter(row =>
-      periodsFromHeader(row.periodContext).some(period => period.includes(year))
-    );
-    if (!matchingYear.length) return null;
-    ranked = matchingYear;
-  }
+const wantsCompany = /\b(?:company|parent company|parent entity)\b/i.test(question);
 
-  ranked.sort((a, b) => a.page - b.page || a.index - b.index);
-  const row = ranked[0];
-  const periods = periodsFromHeader(row.periodContext);
-  const years = periods.map(period => period.match(/\b20\d{2}\b/)?.[0]).filter(Boolean);
-  const values = valuesFromRow(row);
+const preferredSection = wantsCompany
+? "Primary company statement of financial position"
+: "Primary consolidated statement of financial position";
 
-  // Financial statement rows may contain a note number before the actual
-  // period values. Align values from the right only when every reported period
-  // has a corresponding extracted cell. If the header describes four columns
-  // but extraction found only a note number plus two values, do not mistake the
-  // note number for the requested year's amount.
-  if (!periods.length || values.length < periods.length || years.length !== periods.length) {
-    return null;
-  }
-  const periodValues = values.slice(-periods.length);
-  const selectedYear = year || years[0] || null;
-  const valueIndex = selectedYear ? years.indexOf(selectedYear) : 0;
-  if (valueIndex < 0 || valueIndex >= periodValues.length) return null;
+const preferred = candidates.filter(row => row.section === preferredSection);
+let ranked = preferred.length ? preferred : candidates;
 
-  const period = periods[valueIndex] || (selectedYear ? `FY${selectedYear}` : null);
-  const answer = formatAnswer(periodValues[valueIndex], row.periodContext);
-  if (!answer) return null;
+const year = requestedYear(question);
 
-  return {
-    answer,
-    period,
-    sourceQuote: row.text,
-    row
-  };
+if (year) {
+const matchingYear = ranked.filter(row =>
+periodsFromHeader(row.periodContext).some(period =>
+period.includes(year)
+)
+);
+
+if (!matchingYear.length) return null;
+
+ranked = matchingYear;
+
+}
+
+ranked.sort((a, b) => a.page - b.page || a.index - b.index);
+
+const row = ranked[0];
+const periods = periodsFromHeader(row.periodContext);
+const years = periods
+.map(period => period.match(/\b20\d{2}\b/)?.[0])
+.filter(Boolean);
+
+const values = valuesFromRow(row);
+
+// Do not guess if the extracted period columns and numeric cells cannot
+// be aligned reliably. Note numbers may appear before the actual values.
+if (
+!periods.length ||
+values.length < periods.length ||
+years.length !== periods.length
+) {
+return null;
+}
+
+const periodValues = values.slice(-periods.length);
+const selectedYear = year || years[0] || null;
+const valueIndex = selectedYear ? years.indexOf(selectedYear) : 0;
+
+if (valueIndex < 0 || valueIndex >= periodValues.length) return null;
+
+const period = periods[valueIndex] ||
+(selectedYear ? "FY${selectedYear}" : null);
+
+const answer = formatAnswer(
+periodValues[valueIndex],
+row.periodContext
+);
+
+if (!answer) return null;
+
+return {
+answer,
+period,
+sourceQuote: row.text,
+row
+};
 }
