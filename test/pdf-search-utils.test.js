@@ -198,7 +198,7 @@ test("separates short text fragments in two-column layouts", () => {
 
   assert.deepEqual(lines, [
     "Eligibility rules",
-    "Payment dates",
+    "Payment due dates",
     "Applicants must be over 18",
     "Paid every Friday"
   ]);
