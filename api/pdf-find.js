@@ -313,7 +313,7 @@ export default async function handler(req, res) {
       });
     }
 
-    const terms = [...new Set((question.toLowerCase().match(/[a-z0-9]{3,}/g) || []))];
+    const terms = [...new Set((question.toLocaleLowerCase().match(/[\p{L}\p{N}]{2,}/gu) || []))];
     const ranked = blocks.map((b, i) => {
       const lower = b.text.toLowerCase();
       const score = terms.reduce((n, term) => n + (lower.includes(term) ? 1 : 0), 0);
