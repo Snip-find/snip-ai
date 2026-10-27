@@ -312,7 +312,7 @@ return requestedFinancialLabel(question) === "cash and cash equivalents";
 function requestedDate(question) {
   const text = normalized(question);
   const match = text.match(
-    new RegExp(\`\\\\b(\\\\d{1,2}\\\\s+\${MONTH_PATTERN}\\\\s+20\\\\d{2})\\\\b\`, "i")
+    new RegExp("\\b(\\d{1,2}\\s+" + MONTH_PATTERN + "\\s+20\\d{2})\\b", "i")
   );
   return match?.[1] || null;
 }
