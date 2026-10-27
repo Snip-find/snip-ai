@@ -244,11 +244,11 @@ function extractQuestionTerms(question) {
     "their", "his", "her", "they", "them", "he", "she"
   ]);
 
-  return question
-    .split(/\W+/)
+  // Unicode-aware tokenization keeps non-Latin scripts available to local ranking.
+  // Keep two-character terms so languages with short words are searchable.
+  return (String(question || "").toLocaleLowerCase().match(/[\\p{L}\\p{N}]{2,}/gu) || [])
     .map(word => word.trim())
     .filter(Boolean)
-    .filter(word => word.length >= 3)
     .filter(word => !stopWords.has(word));
 }
 
