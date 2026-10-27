@@ -28,10 +28,36 @@ function createResponse() {
 
 
 function createTextPdf() {
-  // ReportLab-generated one-page PDF with a valid classic cross-reference table.
-  // Keep the fixture as base64 so byte offsets and the WinAnsi pound sign remain intact.
-  const fixture = "JVBERi0xLjMKJZOMi54gUmVwb3J0TGFiIEdlbmVyYXRlZCBQREYgZG9jdW1lbnQgKG9wZW5zb3VyY2UpCjEgMCBvYmoKPDwKL0YxIDIgMCBSCj4+CmVuZG9iagoyIDAgb2JqCjw8Ci9CYXNlRm9udCAvSGVsdmV0aWNhIC9FbmNvZGluZyAvV2luQW5zaUVuY29kaW5nIC9OYW1lIC9GMSAvU3VidHlwZSAvVHlwZTEgL1R5cGUgL0ZvbnQKPj4KZW5kb2JqCjMgMCBvYmoKPDwKL0NvbnRlbnRzIDcgMCBSIC9NZWRpYUJveCBbIDAgMCA2MTIgNzkyIF0gL1BhcmVudCA2IDAgUiAvUmVzb3VyY2VzIDw8Ci9Gb250IDEgMCBSIC9Qcm9jU2V0IFsgL1BERiAvVGV4dCAvSW1hZ2VCIC9JbWFnZUMgL0ltYWdlSSBdCj4+IC9Sb3RhdGUgMCAvVHJhbnMgPDwKCj4+IAogIC9UeXBlIC9QYWdlCj4+CmVuZG9iago0IDAgb2JqCjw8Ci9QYWdlTW9kZSAvVXNlTm9uZSAvUGFnZXMgNiAwIFIgL1R5cGUgL0NhdGFsb2cKPj4KZW5kb2JqCjUgMCBvYmoKPDwKL0F1dGhvcigYW5vbnltb3VzKSAvQ3JlYXRpb25EYXRlIChEOjIwMjYxMDI3MTIxMzI3KzAwJzAwJykgL0NyZWF0b3IgKGFub255bW91cykgL0tleXdvcmRzICgpIC9Nb2REYXRlIChEOjIwMjYxMDI3MTIxMzI3KzAwJzAwJykgL1Byb2R1Y2VyIChSZXBvcnRMYWIgUERGIExpYnJhcnkgLSBcKG9wZW5zb3VyY2VcKSkgCiAgL1N1YmplY3QgKHVuc3BlY2lmaWVkKSAvVGl0bGUgKHVudGl0bGVkKSAvVHJhcHBlZCAvRmFsc2UKPj4KZW5kb2JqCjYgMCBvYmoKPDwKL0NvdW50IDEgL0tpZHMgWyAzIDAgUiBdIC9UeXBlIC9QYWdlcwo+PgplbmRvYmoKNyAwIG9iago8PAovRmlsdGVyIFsgL0FTQ0lJODVEZWNvZGUgL0ZsYXRlRGVjb2RlIF0gL0xlbmd0aCAyMjUKPj4Kc3RyZWFtCkdhcm86XElRSjEmNEhEQ2BLV1YiSG1SXGAmNi4jZVVwNHFnN14zRVRuR1NeUyQzYis+aDlqXjpCZGNMajNwYXVqQ1BEU0VKaGo4Pzw5KypxTzAtUGdTLjsoUEN1azVqLWpVUzdKWzFZWl1GMkc0Wz5tdEAmQ1tuRE1zcjwlajBZa0dtVyVzOjctISk7bDMnIUErVlNbUlhURVNJUDtxY0FlVVw8NWk1SVluUkQ9cGtEWkFKPmEmI0tjJWJmSTNTdFdeTWJbJ3RCPmVtWitxI1hJOj5eZmg7NFRKSkE4ZyJ+PmVuZHN0cmVhbQplbmRvYmoKeHJlZgowIDgKMDAwMDAwMDAwMCA2NTUzNSBmIAowMDAwMDAwMDYxIDAwMDAwIG4gCjAwMDAwMDAwOTIgMDAwMDAgbiAKMDAwMDAwMDE5OSAwMDAwMCBuIAowMDAwMDAwMzkyIDAwMDAwIG4gCjAwMDAwMDA0NjAgMDAwMDAgbiAKMDAwMDAwMDcyMSAwMDAwMCBuIAowMDAwMDAwNzgwIDAwMDAwIG4gCnRyYWlsZXIKPDwKL0lEIApbPDY0ZDI1ODM1OTg2NWMwOTE0NTdmNTYzZGRkZjkyMjJlPjw2NGQyNTgzNTk4NjVjMDkxNDU3ZjU2M2RkZGY5MjIyZT5dCiUgUmVwb3J0TGFiIGdlbmVyYXRlZCBQREYgZG9jdW1lbnQgLS0gZGlnZXN0IChvcGVuc291cmNlKQoKL0luZm8gNSAwIFIKL1Jvb3QgNCAwIFIKL1NpemUgOAo+PgpzdGFydHhyZWYKMTA5NQolJUVPRgo=";
-  return Buffer.from(fixture, "base64");
+  // Build a minimal PDF with byte-accurate xref offsets instead of hand-maintained
+  // base64. The content stream is ASCII and uses WinAnsi octal for the pound sign.
+  const stream = [
+    "BT",
+    "/F1 11 Tf",
+    "50 760 Td (Consolidated statement of financial position) Tj",
+    "0 -18 Td (As at 29 March 2025 As at 30 March 2024 \\243m) Tj",
+    "0 -18 Td (Cash and cash equivalents 863.7 999.9) Tj",
+    "ET"
+  ].join("\\n");
+  const objects = [
+    "<< /Type /Catalog /Pages 2 0 R >>",
+    "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+    "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>",
+    "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>",
+    `<< /Length ${Buffer.byteLength(stream, "ascii")} >>\\nstream\\n${stream}\\nendstream`
+  ];
+  let pdf = "%PDF-1.4\\n";
+  const offsets = [0];
+  for (let i = 0; i < objects.length; i += 1) {
+    offsets.push(Buffer.byteLength(pdf, "ascii"));
+    pdf += `${i + 1} 0 obj\\n${objects[i]}\\nendobj\\n`;
+  }
+  const xrefOffset = Buffer.byteLength(pdf, "ascii");
+  pdf += `xref\\n0 ${objects.length + 1}\\n0000000000 65535 f \\n`;
+  for (const offset of offsets.slice(1)) {
+    pdf += `${String(offset).padStart(10, "0")} 00000 n \\n`;
+  }
+  pdf += `trailer\\n<< /Size ${objects.length + 1} /Root 1 0 R >>\\nstartxref\\n${xrefOffset}\\n%%EOF\\n`;
+  return Buffer.from(pdf, "ascii");
 }
 
 test("PDF endpoint extracts a real PDF fixture and returns exact-page financial evidence without OpenAI", async () => {
