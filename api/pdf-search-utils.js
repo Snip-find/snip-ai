@@ -310,11 +310,11 @@ return requestedFinancialLabel(question) === "cash and cash equivalents";
 }
 
 function requestedDate(question) {
-const text = normalized(question);
-const match = text.match(
-  /\b(\d{1,2}\s+(?:January|February|March|April|May|June|July|August|September|October|November|December)\s+20\d{2})\b/i
-);
-return match?.[1] || null;
+  const text = normalized(question);
+  const match = text.match(
+    new RegExp(\`\\\\b(\\\\d{1,2}\\\\s+\${MONTH_PATTERN}\\\\s+20\\\\d{2})\\\\b\`, "i")
+  );
+  return match?.[1] || null;
 }
 
 function requestedYear(question) {
