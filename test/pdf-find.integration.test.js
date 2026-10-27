@@ -75,6 +75,29 @@ function createTextPdf() {
   chunks.push(Buffer.from(xref, "ascii"));
   return Buffer.concat(chunks);
 }
+test("malformed PDF bytes return 422 rather than an internal server error", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => new Response(Buffer.from("%PDF-1.4\\nnot a valid PDF"), {
+    status: 200,
+    headers: { "content-type": "application/pdf" }
+  });
+  try {
+    const response = createResponse();
+    await pdfFindHandler({
+      method: "POST",
+      body: {
+        url: "https://reports.example.test/corrupted.pdf",
+        question: "What is the cash balance?"
+      },
+      headers: {}
+    }, response);
+    assert.equal(response.statusCode, 422);
+    assert.match(response.body.error, /corrupted or invalid PDF/i);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("PDF endpoint extracts a real PDF fixture and returns exact-page financial evidence without OpenAI", async () => {
   const pdfBytes = createTextPdf()
   const originalFetch = globalThis.fetch;
