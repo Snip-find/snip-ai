@@ -39,6 +39,23 @@ test("selects the exact requested date rather than the first date in the table",
   assert.equal(result.period, "29 March 2025");
 });
 
+test("supports abbreviated month names in reporting-date headers and questions", () => {
+  const rows = extractFinancialRows([
+    "Consolidated statement of financial position",
+    "As at 29 Mar 2025 As at 30 Mar 2024 £m",
+    "Cash and cash equivalents 863.7 999.9"
+  ].join("\n"), 40);
+
+  const result = selectPrimaryFinancialEvidence(
+    "What is cash and cash equivalents at 30 Mar 2024 in the statement of financial position?",
+    rows
+  );
+
+  assert.ok(result);
+  assert.equal(result.answer, "£999.9m");
+  assert.equal(result.period, "30 Mar 2024");
+});
+
 test("fails closed when the requested reporting date is not present", () => {
   const result = selectPrimaryFinancialEvidence(
     "What is cash and cash equivalents at 31 March 2023 in the statement of financial position?",
