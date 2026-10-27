@@ -27,44 +27,13 @@ function createResponse() {
 }
 
 
-function createTextPdf(lines) {
-  // Build a tiny PDF fixture using explicit byte offsets for the cross-reference table.
-  const escapePdf = value => String(value).replace(/\\/g, "\\\\").replace(/\(/g, "\\(").replace(/\)/g, "\\)").replace(/£/g, "\\243");
-  const commands = ["BT", "/F1 11 Tf", "50 760 Td"];
-  lines.forEach((line, index) => {
-    if (index) commands.push("0 -18 Td");
-    commands.push("(" + escapePdf(line) + ") Tj");
-  });
-  commands.push("ET");
-  const stream = commands.join("\n");
-  const objects = [
-    "<< /Type /Catalog /Pages 2 0 R >>",
-    "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
-    "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>",
-    "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>",
-    "<< /Length " + Buffer.byteLength(stream, "ascii") + " >>\nstream\n" + stream + "\nendstream"
-  ];
-  let pdf = "%PDF-1.4\n";
-  const offsets = [0];
-  for (let i = 0; i < objects.length; i++) {
-    offsets.push(Buffer.byteLength(pdf, "ascii"));
-    pdf += (i + 1) + " 0 obj\n" + objects[i] + "\nendobj\n";
-  }
-  const xrefOffset = Buffer.byteLength(pdf, "ascii");
-  pdf += "xref\n0 " + (objects.length + 1) + "\n0000000000 65535 f \n";
-  for (let i = 1; i < offsets.length; i++) {
-    pdf += String(offsets[i]).padStart(10, "0") + " 00000 n \n";
-  }
-  pdf += "trailer\n<< /Size " + (objects.length + 1) + " /Root 1 0 R >>\nstartxref\n" + xrefOffset + "\n%%EOF";
-  return Buffer.from(pdf, "ascii");
+function createTextPdf() {
+  // Valid one-page PDF generated with ReportLab; avoids hand-built xref offsets.
+  return Buffer.from("JVBERi0xLjMKJZOMi54gUmVwb3J0TGFiIEdlbmVyYXRlZCBQREYgZG9jdW1lbnQgKG9wZW5zb3VyY2UpCjEgMCBvYmoKPDwKL0YxIDIgMCBSCj4+CmVuZG9iagoyIDAgb2JqCjw8Ci9CYXNlRm9udCAvSGVsdmV0aWNhIC9FbmNvZGluZyAvV2luQW5zaUVuY29kaW5nIC9OYW1lIC9GMSAvU3VidHlwZSAvVHlwZTEgL1R5cGUgL0ZvbnQKPj4KZW5kb2JqCjMgMCBvYmoKPDwKL0NvbnRlbnRzIDcgMCBSIC9NZWRpYUJveCBbIDAgMCA2MTIgNzkyIF0gL1BhcmVudCA2IDAgUiAvUmVzb3VyY2VzIDw8Ci9Gb250IDEgMCBSIC9Qcm9jU2V0IFsgL1BERiAvVGV4dCAvSW1hZ2VCIC9JbWFnZUMgL0ltYWdlSSBdCj4+IC9Sb3RhdGUgMCAvVHJhbnMgPDwKCj4+IAogIC9UeXBlIC9QYWdlCj4+CmVuZG9iago0IDAgb2JqCjw8Ci9QYWdlTW9kZSAvVXNlTm9uZSAvUGFnZXMgNiAwIFIgL1R5cGUgL0NhdGFsb2cKPj4KZW5kb2JqCjUgMCBvYmoKPDwKL0F1dGhvciAoYW5vbnltb3VzKSAvQ3JlYXRpb25EYXRlIChEOjIwMjYxMDI3MTE1MjI1KzAwJzAwJykgL0NyZWF0b3IgKGFub255bW91cykgL0tleXdvcmRzICgpIC9Nb2REYXRlIChEOjIwMjYxMDI3MTE1MjI1KzAwJzAwJykgL1Byb2R1Y2VyIChSZXBvcnRMYWIgUERGIExpYnJhcnkgLSBcKG9wZW5zb3VyY2VcKSkgCiAgL1N1YmplY3QgKHVuc3BlY2lmaWVkKSAvVGl0bGUgKHVudGl0bGVkKSAvVHJhcHBlZCAvRmFsc2UKPj4KZW5kb2JqCjYgMCBvYmoKPDwKL0NvdW50IDEgL0tpZHMgWyAzIDAgUiBdIC9UeXBlIC9QYWdlcwo+PgplbmRvYmoKNyAwIG9iago8PAovTGVuZ3RoIDI2Nwo+PgpzdHJlYW0KMSAwIDAgMSAwIDAgY20gIEJUIC9GMSAxMiBUZiAxNC40IFRMIEVUCkJUIDEgMCAwIDEgNTAgNzYwIFRtIChDb25zb2xpZGF0ZWQgc3RhdGVtZW50IG9mIGZpbmFuY2lhbCBwb3NpdGlvbikgVGogVCogRVQKQlQgMSAwIDAgMSA1MCA3NDIgVG0gKEFzIGF0IDI5IE1hcmNoIDIwMjUgQXMgYXQgMzAgTWFyY2ggMjAyNCBcMjQzbSkgVGogVCogRVQKQlQgMSAwIDAgMSA1MCA3MjQgVG0gKENhc2ggYW5kIGNhc2ggZXF1aXZhbGVudHMgODYzLjcgOTk5LjkpIFRqIFQqIEVUCiAKZW5kc3RyZWFtCmVuZG9iagp4cmVmCjAgOAowMDAwMDAwMDAwIDY1NTM1IGYgCjAwMDAwMDAwNjEgMDAwMDAgbiAKMDAwMDAwMDA5MiAwMDAwMCBuIAowMDAwMDAwMTk5IDAwMDAwIG4gCjAwMDAwMDAzOTIgMDAwMDAgbiAKMDAwMDAwMDQ2MCAwMDAwMCBuIAowMDAwMDAwNzIxIDAwMDAwIG4gCjAwMDAwMDA3ODAgMDAwMDAgbiAKdHJhaWxlcgo8PAovSUQgCls8Y2QzYjA2MTE2ZGU4ZmVmZDk5MzVkNTQzMDdlNjRlYWI+PGNkM2IwNjExNmRlOGZlZmQ5OTM1ZDU0MzA3ZTY0ZWFiPl0KJSBSZXBvcnRMYWIgZ2VuZXJhdGVkIFBERiBkb2N1bWVudCAtLSBkaWdlc3QgKG9wZW5zb3VyY2UpCgovSW5mbyA1IDAgUgovUm9vdCA0IDAgUgovU2l6ZSA4Cj4+CnN0YXJ0eHJlZgoxMDk3CiUlRU9GCg==", "base64");
 }
 
 test("PDF endpoint extracts a real PDF fixture and returns exact-page financial evidence without OpenAI", async () => {
-  const pdfBytes = createTextPdf([
-    "Consolidated statement of financial position",
-    "As at 29 March 2025 As at 30 March 2024 £m",
-    "Cash and cash equivalents 863.7 999.9"
-  ]);
+  const pdfBytes = createTextPdf()
   const originalFetch = globalThis.fetch;
   globalThis.fetch = async () => new Response(pdfBytes, {
     status: 200,
