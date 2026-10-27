@@ -28,18 +28,16 @@ function createResponse() {
 
 
 function createTextPdf() {
-  // Build a minimal one-page PDF and calculate every byte offset from the
-  // actual serialized objects. This avoids stale xref offsets in hand-edited
-  // base64 fixtures and keeps the test independent of external PDF generators.
-  const escapePdfText = value => value.replace(/\\\\/g, "\\\\\\\\").replace(/\\(/g, "\\\\(").replace(/\\)/g, "\\\\)");
+  // Construct a minimal PDF with byte-accurate xref offsets.
+  const escapePdfText = value => value.split("\\").join("\\\\").split("(").join("\\(").split(")").join("\\)");
   const lines = [
     "Consolidated statement of financial position",
-    "As at 29 March 2025     As at 30 March 2024 (£m)",
+    "As at 29 March 2025     As at 30 March 2024 (GBP m)",
     "Cash and cash equivalents     863.7     999.9"
   ];
   const commands = lines.map((line, index) =>
-    `BT /F1 12 Tf 50 ${760 - index * 24} Td (${escapePdfText(line)}) Tj ET`
-  ).join("\\n");
+    "BT /F1 12 Tf 50 " + (760 - index * 24) + " Td (" + escapePdfText(line) + ") Tj ET"
+  ).join("\n");
   const stream = Buffer.from(commands, "ascii");
   const objects = [
     "<< /Type /Catalog /Pages 2 0 R >>",
@@ -47,32 +45,32 @@ function createTextPdf() {
     "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>",
     "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
     Buffer.concat([
-      Buffer.from(`<< /Length ${stream.length} >>\\nstream\\n", "ascii"),
+      Buffer.from("<< /Length " + stream.length + " >>\nstream\n", "ascii"),
       stream,
-      Buffer.from("\\nendstream", "ascii")
+      Buffer.from("\nendstream", "ascii")
     ]),
     "<< /Producer (Snip integration test) >>"
   ];
-  const chunks = [Buffer.from("%PDF-1.4\\n%\\xE2\\xE3\\xCF\\xD3\\n", "binary")];
+  const chunks = [Buffer.from("%PDF-1.4\n%\xE2\xE3\xCF\xD3\n", "binary")];
   const offsets = [0];
   let offset = chunks[0].length;
   objects.forEach((object, index) => {
     offsets.push(offset);
     const body = Buffer.isBuffer(object) ? object : Buffer.from(object, "ascii");
     const wrapped = Buffer.concat([
-      Buffer.from(`${index + 1} 0 obj\\n", "ascii"),
+      Buffer.from((index + 1) + " 0 obj\n", "ascii"),
       body,
-      Buffer.from("\\nendobj\\n", "ascii")
+      Buffer.from("\nendobj\n", "ascii")
     ]);
     chunks.push(wrapped);
     offset += wrapped.length;
   });
   const xrefOffset = offset;
   const xref = [
-    `xref\\n0 ${objects.length + 1}\\n`,
-    "0000000000 65535 f \\n",
-    ...offsets.slice(1).map(value => `${String(value).padStart(10, "0")} 00000 n \\n`),
-    `trailer\\n<< /Size ${objects.length + 1} /Root 1 0 R /Info 6 0 R >>\\nstartxref\\n${xrefOffset}\\n%%EOF\\n`
+    "xref\n0 " + (objects.length + 1) + "\n",
+    "0000000000 65535 f \n",
+    ...offsets.slice(1).map(value => String(value).padStart(10, "0") + " 00000 n \n"),
+    "trailer\n<< /Size " + (objects.length + 1) + " /Root 1 0 R /Info 6 0 R >>\nstartxref\n" + xrefOffset + "\n%%EOF\n"
   ].join("");
   chunks.push(Buffer.from(xref, "ascii"));
   return Buffer.concat(chunks);
