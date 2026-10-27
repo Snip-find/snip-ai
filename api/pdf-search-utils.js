@@ -13,7 +13,7 @@ const FINANCIAL_LABELS = [
 ];
 
 const MONTH_PATTERN =
-"(?:January|February|March|April|May|June|July|August|September|October|November|December)";
+"(?:January|February|March|April|May|June|July|August|September|October|November|December|Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)";
 
 function cleanLine(value) {
 return String(value || "")
