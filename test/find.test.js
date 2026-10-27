@@ -178,3 +178,33 @@ test("an explicit section request searches only matching section metadata", asyn
     assert.doesNotMatch(submittedInput, /strong revenue growth/i);
   } finally { globalThis.fetch = originalFetch; }
 });
+
+
+test("multilingual question terms retain Unicode words for candidate ranking", async () => {
+  const originalFetch = globalThis.fetch;
+  let submittedInput = "";
+  const source = "أعلنت الشركة عن نمو الإيرادات خلال السنة المالية.";
+  globalThis.fetch = async (_url, options) => {
+    submittedInput = JSON.stringify(JSON.parse(options.body).input);
+    return new Response(JSON.stringify({
+      output_text: JSON.stringify({ evidence: [{ block_index: 0, passage: source }] })
+    }), { status: 200, headers: { "content-type": "application/json" } });
+  };
+  try {
+    const response = createResponse();
+    await findHandler({
+      method: "POST",
+      body: {
+        question: "ماذا أعلنت الشركة عن نمو الإيرادات؟",
+        blocks: [{ index: 0, id: "arabic-source", text: source, section: "PDF page 2", page: 2 }]
+      },
+      headers: {}
+    }, response);
+    assert.equal(response.statusCode, 200);
+    assert.match(submittedInput, /أعلنت الشركة عن نمو الإيرادات/);
+    assert.equal(response.body.evidence[0].passage, source);
+    assert.equal(response.body.evidence[0].page, 2);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
