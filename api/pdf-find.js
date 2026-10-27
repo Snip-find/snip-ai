@@ -21,7 +21,7 @@ function unsafeUrl(raw) {
   try {
     const u = new URL(raw);
     if (!["http:", "https:"].includes(u.protocol) || u.username || u.password) return true;
-    const h = u.hostname.toLowerCase().replace(/^\[|\]$/g, "").replace(/\.$/, "");
+    const h = u.hostname.toLowerCase().replace(/^\\[|\\]$/g, "").replace(/\.$/, "");
     if (!h || h === "localhost" || h.endsWith(".localhost") ||
         h.endsWith(".local") || h === "metadata.google.internal") return true;
     const version = isIP(h);
@@ -31,24 +31,17 @@ function unsafeUrl(raw) {
         (a === 100 && b >= 64 && b <= 127) || (a === 169 && b === 254) ||
         (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168) ||
         (a === 192 && b === 0) ||
-        // Deprecated 6to4 relay anycast is not a safe public fetch destination.
         (a === 192 && b === 88 && c === 99) ||
         (a === 198 && (b === 18 || b === 19 || b === 51)) ||
         (a === 203 && b === 0);
     }
     if (version === 6) {
       const ip = h.toLowerCase();
-      // Only permit globally routable IPv6 unicast (2000::/3). This blocks
-      // unspecified, loopback, ULA, link-local, multicast, mapped IPv4 and
-      // most special-use ranges by default instead of trying to enumerate them.
       if (ip === "::" || ip === "::1" || ip.startsWith("::ffff:")) return true;
       const firstHextet = Number.parseInt(ip.split(":")[0] || "0", 16);
       if (!Number.isInteger(firstHextet) || firstHextet < 0x2000 || firstHextet > 0x3fff) return true;
-      // Explicitly deny documentation and 6to4, which can encapsulate addresses
-      // that are not safe destinations for a server-side fetch.
       const hextets = ip.split(":").filter(Boolean);
       const secondHextet = hextets.length > 1 ? Number.parseInt(hextets[1], 16) : 0;
-      // IETF protocol assignments (2001::/23), including benchmarking and ORCHID.
       if ((firstHextet === 0x2001 && secondHextet <= 0x01ff) ||
           /^2001:db8:/i.test(ip) || /^2002:/i.test(ip)) return true;
       return false;
@@ -59,9 +52,6 @@ function unsafeUrl(raw) {
   }
 }
 
-// Pin outbound connections to DNS answers that are all public. Checking only the URL
-// hostname is insufficient: a public-looking hostname can resolve to loopback or
-// private addresses, and a separate preflight lookup would still allow rebinding.
 export function createPublicDnsLookup(resolve = dnsLookup) {
   return function publicDnsLookup(hostname, options, callback) {
     resolve(hostname, {
@@ -82,8 +72,6 @@ export function createPublicDnsLookup(resolve = dnsLookup) {
       if (hasUnsafeAddress) {
         return callback(new Error("The PDF host resolves to a non-public network address."));
       }
-      // Return the validated DNS result itself so the socket connects to the
-      // checked address rather than performing a second, potentially rebinding lookup.
       if (options?.all) return callback(null, addresses);
       return callback(null, addresses[0].address, addresses[0].family);
     });
@@ -169,8 +157,6 @@ export async function extractScannedPdfPages(bytes, signal) {
   const apiKey = String(process.env.SNIP_OCR_SPACE_API_KEY || "").trim();
   if (!apiKey) return null;
 
-  // OCR is explicitly opt-in: configuring this key sends scanned document
-  // bytes to OCR.space for processing. Never send PDFs to a third party by default.
   const form = new FormData();
   form.append("file", new Blob([bytes], { type: "application/pdf" }), "snip-document.pdf");
   form.append("filetype", "PDF");
@@ -207,6 +193,7 @@ export async function extractScannedPdfPages(bytes, signal) {
     text: String(page?.ParsedText || "").trim()
   }));
 }
+
 function captureResponse() {
   return {
     statusCode: 200,
@@ -224,15 +211,6 @@ function captureResponse() {
       return this;
     }
   };
-}
-
-function isExplicitPrimaryStatementCashQuestion(question) {
-  return (
-    isCashPositionLookup(question) &&
-    /\b(?:statement of financial position|balance sheet|primary statement)\b/i.test(
-      String(question || "")
-    )
-  );
 }
 
 export default async function handler(req, res) {
@@ -253,10 +231,10 @@ export default async function handler(req, res) {
   const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
 
   try {
-    // Validate every redirect before requesting it; never auto-follow into a private network.
     let requestUrl = url;
     let response;
-    for (let redirects = 0; redirects <= 3; redirects += 1) {
+    const MAX_REDIRECTS = 3;
+    for (let redirects = 0; redirects <= MAX_REDIRECTS; redirects += 1) {
       if (unsafeUrl(requestUrl)) {
         const error = new Error("The PDF URL redirected to an unsupported address.");
         error.statusCode = 400;
@@ -270,7 +248,7 @@ export default async function handler(req, res) {
       });
       if (![301, 302, 303, 307, 308].includes(response.status)) break;
       const location = response.headers.get("location");
-      if (!location || redirects === 3) {
+      if (!location || redirects === MAX_REDIRECTS) {
         const error = new Error("The PDF URL has too many redirects or an invalid redirect.");
         error.statusCode = 502;
         throw error;
@@ -289,8 +267,6 @@ export default async function handler(req, res) {
       return res.status(415).json({ error: "The URL did not return a PDF." });
     }
 
-    // Count rendered pages explicitly; parser pageIndex values vary across
-    // pdf.js/pdf-parse versions. Preserve line boundaries for table row search.
     let renderedPageNumber = 0;
     const parsePromise = pdfParse(bytes, {
       pagerender: async pageData => {
@@ -301,7 +277,7 @@ export default async function handler(req, res) {
       }
     });
     const parsed = await withAbort(parsePromise, controller.signal);
-    const split = String(parsed.text || "").split(/\[\[SNIP_PAGE_(\d+)\]\]/g);
+    const split = String(parsed.text || "").split(/\\[\[SNIP_PAGE_(\d+)\\]\]/g);
     const blocks = [];
     const financialRows = [];
     const pagesWithoutText = [];
@@ -318,6 +294,7 @@ export default async function handler(req, res) {
         blocks.push({ id: `pdf-${page}-${index}`, index: index++, text: item.text, section: `PDF page ${page}`, page });
       }
     }
+
     if (pagesWithoutText.length && process.env.SNIP_OCR_SPACE_API_KEY) {
       try {
         const ocrPages = await withAbort(extractScannedPdfPages(bytes, controller.signal), controller.signal);
@@ -338,8 +315,6 @@ export default async function handler(req, res) {
           }
         }
       } catch (error) {
-        // Preserve searchable text pages if optional OCR fails; scanned-only
-        // documents will still receive a clear error below.
         if (!blocks.length) throw error;
         console.error("Optional OCR failed for some PDF pages:", error?.message || error);
       }
@@ -347,10 +322,11 @@ export default async function handler(req, res) {
     if (!blocks.length) {
       const message = process.env.SNIP_OCR_SPACE_API_KEY
         ? "This PDF has no readable text. The configured OCR service could not extract any text."
-        : "This PDF has no readable text. To enable scanned-PDF OCR, configure SNIP_OCR_SPACE_API_KEY. Scanned documents are sent to OCR.space only when this setting is enabled.";
+        : "This PDF has no readable text. To enable scanned-PDF OCR, configure SNIP_OCR_SPACE_API_KEY.";
       return res.status(422).json({ error: message });
     }
 
+    // 1. Try structured financial table extraction first
     const financial = selectPrimaryFinancialEvidence(question, financialRows);
     if (financial) {
       const { row } = financial;
@@ -359,8 +335,6 @@ export default async function handler(req, res) {
         block_id: row.id,
         passage: row.text,
         text: row.text,
-        // The extension uses this exact source quote to validate and highlight
-        // the correct row. Keep it on the evidence object, not only top-level.
         quote: financial.sourceQuote,
         section: row.section,
         page: row.page,
@@ -377,47 +351,43 @@ export default async function handler(req, res) {
       });
     }
 
-    // Only fail closed when the question explicitly asks for the primary
-    // Statement of Financial Position / balance-sheet figure. Broader questions
-    // about where the report discusses cash should continue through normal
-    // evidence search instead of returning an empty result prematurely.
-    if (isExplicitPrimaryStatementCashQuestion(question)) {
-      return res.status(200).json({
-        answer: null,
-        evidence: [],
-        pageCount
-      });
-    }
-
+    // 2. FIXED: Fall through to LLM Semantic Search (findHandler) if structured extraction yields no result
     const terms = [...new Set((question.toLocaleLowerCase().match(/[\p{L}\p{N}]{2,}/gu) || []))];
     const ranked = blocks.map((b, i) => {
       const lower = b.text.toLowerCase();
       const score = terms.reduce((n, term) => n + (lower.includes(term) ? 1 : 0), 0);
       return { b, i, score };
     }).sort((a, b) => b.score - a.score || a.i - b.i);
+
     const chosen = new Map();
     for (const item of ranked.slice(0, 50)) {
       for (const neighbor of [blocks[item.i - 1], item.b, blocks[item.i + 1]]) {
         if (neighbor) chosen.set(neighbor.id, neighbor);
       }
     }
+
+    const payloadBlocks = [...chosen.values()].slice(0, 70);
     const analysisResponse = captureResponse();
     const analysisPromise = findHandler({
       method: "POST",
-      body: { question, blocks: [...chosen.values()].slice(0, 70) },
+      body: { question, blocks: payloadBlocks },
       headers: {}
     }, analysisResponse);
+
     await withAbort(analysisPromise, controller.signal);
     const result = analysisResponse.body || {};
     if (analysisResponse.statusCode < 200 || analysisResponse.statusCode >= 300) {
       return res.status(502).json({ error: result.error || "Snip could not analyze this PDF." });
     }
+
+    // 3. FIXED: Properly map returned evidence to global blocks by ID and payload index
     const evidence = (Array.isArray(result.evidence) ? result.evidence : []).map(item => {
-      const block = blocks.find(b => b.id === item.block_id ||
-        (item.block_index != null && b.index === Number(item.block_index)));
+      const payloadMatch = item.block_index != null ? payloadBlocks[Number(item.block_index)] : null;
+      const block = blocks.find(b => b.id === item.block_id) || payloadMatch;
       if (!block) return null;
-      return { ...item, page: block.page, text: String(item.text || item.passage || "").trim() };
+      return { ...item, block_id: block.id, page: block.page, text: String(item.text || item.passage || "").trim() };
     }).filter(item => item?.text && Number.isInteger(item.page) && item.page >= 1);
+
     return res.status(200).json({ evidence: evidence.slice(0, 3), pageCount });
   } catch (error) {
     console.error("Snip PDF search error:", error);
