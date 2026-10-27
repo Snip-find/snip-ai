@@ -27,12 +27,38 @@ function createResponse() {
 }
 
 
-// The parser-level endpoint integration test is intentionally not run until a
-// binary PDF fixture can be committed and verified with the pinned pdf-parse
-// version. Date/period selection remains covered by pdf-search-utils.test.js.
-test("PDF endpoint extracts exact-page financial evidence from a real PDF fixture", { skip: "Needs a verified binary PDF fixture; hand-encoded fixtures repeatedly fail PDF.js xref validation" }, async () => {
-  throw new Error("This test should only be enabled with a verified PDF fixture.");
+function createTextPdf() {
+  // Fixed fixture produced by ReportLab with a valid cross-reference table.
+  return Buffer.from("JVBERi0xLjMKJZOMi54gUmVwb3J0TGFiIEdlbmVyYXRlZCBQREYgZG9jdW1lbnQgKG9wZW5zb3VyY2UpCjEgMCBvYmoKPDwKL0YxIDIgMCBSCj4+CmVuZG9iagoyIDAgb2JqCjw8Ci9CYXNlRm9udCAvSGVsdmV0aWNhIC9FbmNvZGluZyAvV2luQW5zaUVuY29kaW5nIC9OYW1lIC9GMSAvU3VidHlwZSAvVHlwZTEgL1R5cGUgL0ZvbnQKPj4KZW5kb2JqCjMgMCBvYmoKPDwKL0NvbnRlbnRzIDcgMCBSIC9NZWRpYUJveCBbIDAgMCA2MTIgNzkyIF0gL1BhcmVudCA2IDAgUiAvUmVzb3VyY2VzIDw8Ci9Gb250IDEgMCBSIC9Qcm9jU2V0IFsgL1BERiAvVGV4dCAvSW1hZ2VCIC9JbWFnZUMgL0ltYWdlSSBdCj4+IC9Sb3RhdGUgMCAvVHJhbnMgPDwKCj4+IAogIC9UeXBlIC9QYWdlCj4+CmVuZG9iago0IDAgb2JqCjw8Ci9QYWdlTW9kZSAvVXNlTm9uZSAvUGFnZXMgNiAwIFIgL1R5cGUgL0NhdGFsb2cKPj4KZW5kb2JqCjUgMCBvYmoKPDwKL0F1dGhvciAoYW5vbnltb3VzKSAvQ3JlYXRpb25EYXRlIChEOjIwMjYxMDI3MTIyNjEwKzAwJzAwJykgL0NyZWF0b3IgKGFub255bW91cykgL0tleXdvcmRzICgpIC9Nb2REYXRlIChEOjIwMjYxMDI3MTIyNjEwKzAwJzAwJykgL1Byb2R1Y2VyIChSZXBvcnRMYWIgUERGIExpYnJhcnkgLSBcKG9wZW5zb3VyY2VcKSkgCiAgL1N1YmplY3QgKHVuc3BlY2lmaWVkKSAvVGl0bGUgKHVudGl0bGVkKSAvVHJhcHBlZCAvRmFsc2UKPj4KZW5kb2JqCjYgMCBvYmoKPDwKL0NvdW50IDEgL0tpZHMgWyAzIDAgUiBdIC9UeXBlIC9QYWdlcwo+PgplbmRvYmoKNyAwIG9iago8PAovTGVuZ3RoIDMxMwo+PgpzdHJlYW0KMSAwIDAgMSAwIDAgY20gIEJUIC9GMSAxMiBUZiAxNC40IFRMIEVUCkJUIC9GMSAxMSBUZiAxMy4yIFRMIEVUCkJUIDEgMCAwIDEgNTAgNzYwIFRtIChDb25zb2xpZGF0ZWQgc3RhdGVtZW50IG9mIGZpbmFuY2lhbCBwb3NpdGlvbikgVGogVCogRVQKQlQgMSAwIDAgMSA1MCA3NDIgVG0gKEFzIGF0IDI5IE1hcmNoIDIwMjUgICAgICAgQXMgYXQgMzAgTWFyY2ggMjAyNCBcKFwyNDNtXCkpIFRqIFQqIEVUCkJUIDEgMCAwIDEgNTAgNzI0IFRtIChDYXNoIGFuZCBjYXNoIGVxdWl2YWxlbnRzICAgICAgIDg2My43ICAgICAgIDk5OS45KSBUaiBUKiBFVAogCmVuZHN0cmVhbQplbmRvYmoKeHJlZgowIDgKMDAwMDAwMDAwMCA2NTUzNSBmIAowMDAwMDAwMDYxIDAwMDAwIG4gCjAwMDAwMDAwOTIgMDAwMDAgbiAKMDAwMDAwMDE5OSAwMDAwMCBuIAowMDAwMDAwMzkyIDAwMDAwIG4gCjAwMDAwMDA0NjAgMDAwMDAgbiAKMDAwMDAwMDcyMSAwMDAwMCBuIAowMDAwMDAwNzgwIDAwMDAwIG4gCnRyYWlsZXIKPDwKL0lEIApbPDQ4MTRjNDVhNzA2ZmJiZDM2ODlmMTFkZTZiNmMyODFlPjw0ODE0YzQ1YTcwNmZiYmQzNjg5ZjExZGU2YjZjMjgxZT5dCiUgUmVwb3J0TGFiIGdlbmVyYXRlZCBQREYgZG9jdW1lbnQgLS0gZGlnZXN0IChvcGVuc291cmNlKQoKL0luZm8gNSAwIFIKL1Jvb3QgNCAwIFIKL1NpemUgOAo+PgpzdGFydHhyZWYKMTE0MwolJUVPRgo=", "base64");
+}
+test("PDF endpoint extracts a real PDF fixture and returns exact-page financial evidence without OpenAI", async () => {
+  const pdfBytes = createTextPdf()
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => new Response(pdfBytes, {
+    status: 200,
+    headers: { "content-type": "application/pdf" }
+  });
+  try {
+    const response = createResponse();
+    await pdfFindHandler({
+      method: "POST",
+      body: {
+        url: "https://reports.example.test/synthetic-report.pdf",
+        question: "What were cash and cash equivalents at 30 March 2024 in the consolidated statement of financial position?"
+      },
+      headers: {}
+    }, response);
+    assert.equal(response.statusCode, 200);
+    assert.equal(response.body.answer, "£999.9m");
+    assert.equal(response.body.period, "30 March 2024");
+    assert.equal(response.body.evidence[0].page, 1);
+    assert.match(response.body.sourceQuote, /Cash and cash equivalents/);
+    assert.equal(response.body.pageCount, 1);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
 });
+
 
 const msExpected = {
   answer: process.env.SNIP_MS_EXPECTED_ANSWER,
