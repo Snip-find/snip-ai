@@ -45,18 +45,18 @@ function createTextPdf() {
     "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>",
     `<< /Length ${Buffer.byteLength(stream, "ascii")} >>\nstream\n${stream}\nendstream`
   ];
-  let pdf = "%PDF-1.4\n";
+  let pdf = "%PDF-1.4\r\n";
   const offsets = [0];
   for (let i = 0; i < objects.length; i += 1) {
     offsets.push(Buffer.byteLength(pdf, "ascii"));
-    pdf += `${i + 1} 0 obj\n${objects[i]}\nendobj\n`;
+    pdf += `${i + 1} 0 obj\n${objects[i]}\r\nendobj\r\n`;
   }
   const xrefOffset = Buffer.byteLength(pdf, "ascii");
-  pdf += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n`;
+  pdf += `xref\r\n0 ${objects.length + 1}\r\n0000000000 65535 f \r\n`;
   for (const offset of offsets.slice(1)) {
-    pdf += `${String(offset).padStart(10, "0")} 00000 n \n`;
+    pdf += `${String(offset).padStart(10, "0")} 00000 n \r\n`;
   }
-  pdf += `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xrefOffset}\n%%EOF\n`;
+  pdf += `trailer\r\n<< /Size ${objects.length + 1} /Root 1 0 R >>\r\nstartxref\r\n${xrefOffset}\r\n%%EOF\r\n`;
   return Buffer.from(pdf, "ascii");
 }
 
