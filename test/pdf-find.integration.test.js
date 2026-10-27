@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import test from "node:test";
 
-const { default: pdfFindHandler, publicDnsLookup, createPublicDnsLookup } = await import("../api/pdf-find.js");
+const { default: pdfFindHandler, publicDnsLookup, createPublicDnsLookup, extractScannedPdfPages } = await import("../api/pdf-find.js");
 
 function createResponse() {
   return {
@@ -216,5 +216,73 @@ test("allows a globally routable IPv6 PDF URL through URL validation", async () 
     assert.equal(response.statusCode, 415);
   } finally {
     globalThis.fetch = originalFetch;
+  }
+});
+
+
+test("OCR extraction preserves physical page slots, including pages with no recognized text", async () => {
+  const originalFetch = globalThis.fetch;
+  const originalKey = process.env.SNIP_OCR_SPACE_API_KEY;
+  process.env.SNIP_OCR_SPACE_API_KEY = "test-ocr-key";
+  let request;
+  globalThis.fetch = async (url, options) => {
+    request = { url: String(url), options };
+    return new Response(JSON.stringify({
+      IsErroredOnProcessing: false,
+      ParsedResults: [
+        { ParsedText: "First scanned page text" },
+        { ParsedText: "" },
+        { ParsedText: "Third scanned page text" }
+      ]
+    }), { status: 200, headers: { "content-type": "application/json" } });
+  };
+  try {
+    const pages = await extractScannedPdfPages(Buffer.from("%PDF-test"), new AbortController().signal);
+    assert.equal(request.url, "https://api.ocr.space/parse/image");
+    assert.equal(request.options.method, "POST");
+    assert.equal(request.options.headers.apikey, "test-ocr-key");
+    assert.deepEqual(pages, [
+      { page: 1, text: "First scanned page text" },
+      { page: 2, text: "" },
+      { page: 3, text: "Third scanned page text" }
+    ]);
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (originalKey === undefined) delete process.env.SNIP_OCR_SPACE_API_KEY;
+    else process.env.SNIP_OCR_SPACE_API_KEY = originalKey;
+  }
+});
+
+test("OCR extraction is disabled without an explicit API key", async () => {
+  const originalKey = process.env.SNIP_OCR_SPACE_API_KEY;
+  const originalFetch = globalThis.fetch;
+  delete process.env.SNIP_OCR_SPACE_API_KEY;
+  globalThis.fetch = async () => { throw new Error("OCR must not run without opt-in"); };
+  try {
+    assert.equal(await extractScannedPdfPages(Buffer.from("%PDF-test"), new AbortController().signal), null);
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (originalKey === undefined) delete process.env.SNIP_OCR_SPACE_API_KEY;
+    else process.env.SNIP_OCR_SPACE_API_KEY = originalKey;
+  }
+});
+
+test("OCR extraction reports provider processing errors clearly", async () => {
+  const originalFetch = globalThis.fetch;
+  const originalKey = process.env.SNIP_OCR_SPACE_API_KEY;
+  process.env.SNIP_OCR_SPACE_API_KEY = "test-ocr-key";
+  globalThis.fetch = async () => new Response(JSON.stringify({
+    IsErroredOnProcessing: true,
+    ErrorMessage: ["Invalid PDF"]
+  }), { status: 200, headers: { "content-type": "application/json" } });
+  try {
+    await assert.rejects(
+      extractScannedPdfPages(Buffer.from("%PDF-test"), new AbortController().signal),
+      error => error.statusCode === 422 && /Invalid PDF/.test(error.message)
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (originalKey === undefined) delete process.env.SNIP_OCR_SPACE_API_KEY;
+    else process.env.SNIP_OCR_SPACE_API_KEY = originalKey;
   }
 });
