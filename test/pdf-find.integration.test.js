@@ -28,8 +28,54 @@ function createResponse() {
 
 
 function createTextPdf() {
-  // Fixed fixture produced by ReportLab with a valid cross-reference table.
-  return Buffer.from("JVBERi0xLjMKJZOMi54gUmVwb3J0TGFiIEdlbmVyYXRlZCBQREYgZG9jdW1lbnQgKG9wZW5zb3VyY2UpCjEgMCBvYmoKPDwKL0YxIDIgMCBSCj4+CmVuZG9iagoyIDAgb2JqCjw8Ci9CYXNlRm9udCAvSGVsdmV0aWNhIC9FbmNvZGluZyAvV2luQW5zaUVuY29kaW5nIC9OYW1lIC9GMSAvU3VidHlwZSAvVHlwZTEgL1R5cGUgL0ZvbnQKPj4KZW5kb2JqCjMgMCBvYmoKPDwKL0NvbnRlbnRzIDcgMCBSIC9NZWRpYUJveCBbIDAgMCA2MTIgNzkyIF0gL1BhcmVudCA2IDAgUiAvUmVzb3VyY2VzIDw8Ci9Gb250IDEgMCBSIC9Qcm9jU2V0IFsgL1BERiAvVGV4dCAvSW1hZ2VCIC9JbWFnZUMgL0ltYWdlSSBdCj4+IC9Sb3RhdGUgMCAvVHJhbnMgPDwKCj4+IAogIC9UeXBlIC9QYWdlCj4+CmVuZG9iago0IDAgb2JqCjw8Ci9QYWdlTW9kZSAvVXNlTm9uZSAvUGFnZXMgNiAwIFIgL1R5cGUgL0NhdGFsb2cKPj4KZW5kb2JqCjUgMCBvYmoKPDwKL0F1dGhvciAoYW5vbnltb3VzKSAvQ3JlYXRpb25EYXRlIChEOjIwMjYxMDI3MTIyNjEwKzAwJzAwJykgL0NyZWF0b3IgKGFub255bW91cykgL0tleXdvcmRzICgpIC9Nb2REYXRlIChEOjIwMjYxMDI3MTIyNjEwKzAwJzAwJykgL1Byb2R1Y2VyIChSZXBvcnRMYWIgUERGIExpYnJhcnkgLSBcKG9wZW5zb3VyY2VcKSkgCiAgL1N1YmplY3QgKHVuc3BlY2lmaWVkKSAvVGl0bGUgKHVudGl0bGVkKSAvVHJhcHBlZCAvRmFsc2UKPj4KZW5kb2JqCjYgMCBvYmoKPDwKL0NvdW50IDEgL0tpZHMgWyAzIDAgUiBdIC9UeXBlIC9QYWdlcwo+PgplbmRvYmoKNyAwIG9iago8PAovTGVuZ3RoIDMxMwo+PgpzdHJlYW0KMSAwIDAgMSAwIDAgY20gIEJUIC9GMSAxMiBUZiAxNC40IFRMIEVUCkJUIC9GMSAxMSBUZiAxMy4yIFRMIEVUCkJUIDEgMCAwIDEgNTAgNzYwIFRtIChDb25zb2xpZGF0ZWQgc3RhdGVtZW50IG9mIGZpbmFuY2lhbCBwb3NpdGlvbikgVGogVCogRVQKQlQgMSAwIDAgMSA1MCA3NDIgVG0gKEFzIGF0IDI5IE1hcmNoIDIwMjUgICAgICAgQXMgYXQgMzAgTWFyY2ggMjAyNCBcKFwyNDNtXCkpIFRqIFQqIEVUCkJUIDEgMCAwIDEgNTAgNzI0IFRtIChDYXNoIGFuZCBjYXNoIGVxdWl2YWxlbnRzICAgICAgIDg2My43ICAgICAgIDk5OS45KSBUaiBUKiBFVAogCmVuZHN0cmVhbQplbmRvYmoKeHJlZgowIDgKMDAwMDAwMDAwMCA2NTUzNSBmIAowMDAwMDAwMDYxIDAwMDAwIG4gCjAwMDAwMDAwOTIgMDAwMDAgbiAKMDAwMDAwMDE5OSAwMDAwMCBuIAowMDAwMDAwMzkyIDAwMDAwIG4gCjAwMDAwMDA0NjAgMDAwMDAgbiAKMDAwMDAwMDcyMSAwMDAwMCBuIAowMDAwMDAwNzgwIDAwMDAwIG4gCnRyYWlsZXIKPDwKL0lEIApbPDQ4MTRjNDVhNzA2ZmJiZDM2ODlmMTFkZTZiNmMyODFlPjw0ODE0YzQ1YTcwNmZiYmQzNjg5ZjExZGU2YjZjMjgxZT5dCiUgUmVwb3J0TGFiIGdlbmVyYXRlZCBQREYgZG9jdW1lbnQgLS0gZGlnZXN0IChvcGVuc291cmNlKQoKL0luZm8gNSAwIFIKL1Jvb3QgNCAwIFIKL1NpemUgOAo+PgpzdGFydHhyZWYKMTE0MwolJUVPRgo=", "base64");
+  // Build a minimal one-page PDF and calculate every byte offset from the
+  // actual serialized objects. This avoids stale xref offsets in hand-edited
+  // base64 fixtures and keeps the test independent of external PDF generators.
+  const escapePdfText = value => value.replace(/\\\\/g, "\\\\\\\\").replace(/\\(/g, "\\\\(").replace(/\\)/g, "\\\\)");
+  const lines = [
+    "Consolidated statement of financial position",
+    "As at 29 March 2025     As at 30 March 2024 (£m)",
+    "Cash and cash equivalents     863.7     999.9"
+  ];
+  const commands = lines.map((line, index) =>
+    `BT /F1 12 Tf 50 ${760 - index * 24} Td (${escapePdfText(line)}) Tj ET`
+  ).join("\\n");
+  const stream = Buffer.from(commands, "ascii");
+  const objects = [
+    "<< /Type /Catalog /Pages 2 0 R >>",
+    "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+    "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>",
+    "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+    Buffer.concat([
+      Buffer.from(`<< /Length ${stream.length} >>\\nstream\\n", "ascii"),
+      stream,
+      Buffer.from("\\nendstream", "ascii")
+    ]),
+    "<< /Producer (Snip integration test) >>"
+  ];
+  const chunks = [Buffer.from("%PDF-1.4\\n%\\xE2\\xE3\\xCF\\xD3\\n", "binary")];
+  const offsets = [0];
+  let offset = chunks[0].length;
+  objects.forEach((object, index) => {
+    offsets.push(offset);
+    const body = Buffer.isBuffer(object) ? object : Buffer.from(object, "ascii");
+    const wrapped = Buffer.concat([
+      Buffer.from(`${index + 1} 0 obj\\n", "ascii"),
+      body,
+      Buffer.from("\\nendobj\\n", "ascii")
+    ]);
+    chunks.push(wrapped);
+    offset += wrapped.length;
+  });
+  const xrefOffset = offset;
+  const xref = [
+    `xref\\n0 ${objects.length + 1}\\n`,
+    "0000000000 65535 f \\n",
+    ...offsets.slice(1).map(value => `${String(value).padStart(10, "0")} 00000 n \\n`),
+    `trailer\\n<< /Size ${objects.length + 1} /Root 1 0 R /Info 6 0 R >>\\nstartxref\\n${xrefOffset}\\n%%EOF\\n`
+  ].join("");
+  chunks.push(Buffer.from(xref, "ascii"));
+  return Buffer.concat(chunks);
 }
 test("PDF endpoint extracts a real PDF fixture and returns exact-page financial evidence without OpenAI", async () => {
   const pdfBytes = createTextPdf()
