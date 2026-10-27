@@ -13,7 +13,7 @@ const FINANCIAL_LABELS = [
 ];
 
 const MONTH_PATTERN =
-"(?:January|February|March|April|May|June|July|August|September|October|November|December)";
+"(?:January|February|March|April|May|June|July|August|September|October|November|December|Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)";
 
 function cleanLine(value) {
 return String(value || "")
@@ -309,7 +309,18 @@ export function isCashPositionLookup(question) {
 return requestedFinancialLabel(question) === "cash and cash equivalents";
 }
 
+function requestedDate(question) {
+  const text = normalized(question);
+  const match = text.match(
+    new RegExp("\\b(\\d{1,2}\\s+" + MONTH_PATTERN + "\\s+20\\d{2})\\b", "i")
+  );
+  return match?.[1] || null;
+}
+
 function requestedYear(question) {
+const date = requestedDate(question);
+if (date) return date.match(/\b20\d{2}\b/)?.[0] || null;
+
 return String(question || "").match(
 /\b(?:FY|financial year|fiscal year|year ended|year ending|as at|for|in)?\s*(20\d{2})\b/i
 )?.[1] || null;
@@ -359,23 +370,29 @@ const preferredSection = wantsCompany
 const preferred = candidates.filter(row => row.section === preferredSection);
 let ranked = preferred.length ? preferred : candidates;
 
+const requestedPeriodDate = requestedDate(question);
 const year = requestedYear(question);
 
-if (year) {
+if (requestedPeriodDate) {
+const targetDate = normalized(requestedPeriodDate);
+const matchingDate = ranked.filter(row =>
+periodsFromHeader(row.periodContext).some(period =>
+normalized(period).includes(targetDate)
+)
+);
+if (!matchingDate.length) return null;
+ranked = matchingDate;
+} else if (year) {
 const matchingYear = ranked.filter(row =>
 periodsFromHeader(row.periodContext).some(period =>
 period.includes(year)
 )
 );
-
 if (!matchingYear.length) return null;
-
 ranked = matchingYear;
-
 }
 
 ranked.sort((a, b) => a.page - b.page || a.index - b.index);
-
 const row = ranked[0];
 const periods = periodsFromHeader(row.periodContext);
 const years = periods
@@ -396,7 +413,9 @@ return null;
 
 const periodValues = values.slice(-periods.length);
 const selectedYear = year || years[0] || null;
-const valueIndex = selectedYear ? years.indexOf(selectedYear) : 0;
+const valueIndex = requestedPeriodDate
+  ? periods.findIndex(period => normalized(period).includes(normalized(requestedPeriodDate)))
+  : (selectedYear ? years.indexOf(selectedYear) : 0);
 
 if (valueIndex < 0 || valueIndex >= periodValues.length) return null;
 

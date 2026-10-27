@@ -26,6 +26,84 @@ function createResponse() {
   };
 }
 
+
+function createTextPdf() {
+  // Construct a minimal PDF with byte-accurate xref offsets.
+  const escapePdfText = value => value.split("\\").join("\\\\").split("(").join("\\(").split(")").join("\\)");
+  const lines = [
+    "Consolidated statement of financial position",
+    "As at 29 March 2025     As at 30 March 2024 (GBP m)",
+    "Cash and cash equivalents     863.7     999.9"
+  ];
+  const commands = lines.map((line, index) =>
+    "BT /F1 12 Tf 50 " + (760 - index * 24) + " Td (" + escapePdfText(line) + ") Tj ET"
+  ).join("\n");
+  const stream = Buffer.from(commands, "ascii");
+  const objects = [
+    "<< /Type /Catalog /Pages 2 0 R >>",
+    "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+    "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>",
+    "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+    Buffer.concat([
+      Buffer.from("<< /Length " + stream.length + " >>\nstream\n", "ascii"),
+      stream,
+      Buffer.from("\nendstream", "ascii")
+    ]),
+    "<< /Producer (Snip integration test) >>"
+  ];
+  const chunks = [Buffer.from("%PDF-1.4\n%\xE2\xE3\xCF\xD3\n", "binary")];
+  const offsets = [0];
+  let offset = chunks[0].length;
+  objects.forEach((object, index) => {
+    offsets.push(offset);
+    const body = Buffer.isBuffer(object) ? object : Buffer.from(object, "ascii");
+    const wrapped = Buffer.concat([
+      Buffer.from((index + 1) + " 0 obj\n", "ascii"),
+      body,
+      Buffer.from("\nendobj\n", "ascii")
+    ]);
+    chunks.push(wrapped);
+    offset += wrapped.length;
+  });
+  const xrefOffset = offset;
+  const xref = [
+    "xref\n0 " + (objects.length + 1) + "\n",
+    "0000000000 65535 f \n",
+    ...offsets.slice(1).map(value => String(value).padStart(10, "0") + " 00000 n \n"),
+    "trailer\n<< /Size " + (objects.length + 1) + " /Root 1 0 R /Info 6 0 R >>\nstartxref\n" + xrefOffset + "\n%%EOF\n"
+  ].join("");
+  chunks.push(Buffer.from(xref, "ascii"));
+  return Buffer.concat(chunks);
+}
+test("PDF endpoint extracts a real PDF fixture and returns exact-page financial evidence without OpenAI", async () => {
+  const pdfBytes = createTextPdf()
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => new Response(pdfBytes, {
+    status: 200,
+    headers: { "content-type": "application/pdf" }
+  });
+  try {
+    const response = createResponse();
+    await pdfFindHandler({
+      method: "POST",
+      body: {
+        url: "https://reports.example.test/synthetic-report.pdf",
+        question: "What were cash and cash equivalents at 30 March 2024 in the consolidated statement of financial position?"
+      },
+      headers: {}
+    }, response);
+    assert.equal(response.statusCode, 200);
+    assert.equal(response.body.answer, "£999.9m");
+    assert.equal(response.body.period, "30 March 2024");
+    assert.equal(response.body.evidence[0].page, 1);
+    assert.match(response.body.sourceQuote, /Cash and cash equivalents/);
+    assert.equal(response.body.pageCount, 1);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+
 const msExpected = {
   answer: process.env.SNIP_MS_EXPECTED_ANSWER,
   period: process.env.SNIP_MS_EXPECTED_PERIOD,
