@@ -246,7 +246,7 @@ function extractQuestionTerms(question) {
 
   // Unicode-aware tokenization keeps non-Latin scripts available to local ranking.
   // Keep two-character terms so languages with short words are searchable.
-  return (String(question || "").toLocaleLowerCase().match(/[\\p{L}\\p{N}]{2,}/gu) || [])
+  return (String(question || "").toLocaleLowerCase().match(/[\p{L}\p{N}]{2,}/gu) || [])
     .map(word => word.trim())
     .filter(Boolean)
     .filter(word => !stopWords.has(word));
