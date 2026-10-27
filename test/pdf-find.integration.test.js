@@ -63,7 +63,7 @@ function createTextPdf(lines) {
 test("PDF endpoint extracts a real PDF fixture and returns exact-page financial evidence without OpenAI", async () => {
   const pdfBytes = createTextPdf([
     "Consolidated statement of financial position",
-    "As at 29 March 2025 As at 30 March 2024 GBP millions",
+    "As at 29 March 2025 As at 30 March 2024 £m",
     "Cash and cash equivalents 863.7 999.9"
   ]);
   const originalFetch = globalThis.fetch;
@@ -82,7 +82,7 @@ test("PDF endpoint extracts a real PDF fixture and returns exact-page financial 
       headers: {}
     }, response);
     assert.equal(response.statusCode, 200);
-    assert.equal(response.body.answer, "GBP 999.9m");
+    assert.equal(response.body.answer, "£999.9m");
     assert.equal(response.body.period, "30 March 2024");
     assert.equal(response.body.evidence[0].page, 1);
     assert.match(response.body.sourceQuote, /Cash and cash equivalents/);
