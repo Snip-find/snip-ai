@@ -300,7 +300,20 @@ export default async function handler(req, res) {
         return `\n[[SNIP_PAGE_${renderedPageNumber}]]\n${lines.join("\n")}\n`;
       }
     });
-    const parsed = await withAbort(parsePromise, controller.signal);
+    let parsed;
+    try {
+      parsed = await withAbort(parsePromise, controller.signal);
+    } catch (parseError) {
+      // A malformed PDF is a client-supplied document error, not an internal
+      // server failure. Preserve timeouts and unrelated parser/runtime errors.
+      const message = String(parseError?.message || "");
+      if (/bad XRef|Invalid PDF|FormatError|Invalid PDF structure|Missing PDF/i.test(message)) {
+        const error = new Error("The PDF file appears to be corrupted or invalid.");
+        error.statusCode = 422;
+        throw error;
+      }
+      throw parseError;
+    }
     const split = String(parsed.text || "").split(/\[\[SNIP_PAGE_(\d+)\]\]/g);
     const blocks = [];
     const financialRows = [];
