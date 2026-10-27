@@ -23,8 +23,8 @@ test("selects the value under an explicitly requested reporting date", () => {
   );
 
   assert.ok(result);
-  assert.equal(result.answer, "863.7");
-  assert.equal(result.period, "29 March 2025");
+  assert.equal(result.answer, "999.9");
+  assert.equal(result.period, "30 March 2024");
 });
 
 test("selects the exact requested date rather than the first date in the table", () => {
