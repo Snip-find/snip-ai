@@ -33,7 +33,7 @@ function createTextPdf() {
 }
 test("malformed PDF bytes return 422 rather than an internal server error", async () => {
   const originalFetch = globalThis.fetch;
-  globalThis.fetch = async () => new Response(Buffer.from("%PDF-1.4\\nnot a valid PDF"), {
+  globalThis.fetch = async () => new Response(Buffer.from("%PDF-1.4\nnot a valid PDF"), {
     status: 200,
     headers: { "content-type": "application/pdf" }
   });
