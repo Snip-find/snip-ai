@@ -43,21 +43,21 @@ function createTextPdf(lines) {
     "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
     "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>",
     "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
-    "<< /Length " + Buffer.byteLength(stream, "binary") + " >>\nstream\n" + stream + "\nendstream"
+    "<< /Length " + Buffer.byteLength(stream, "utf8") + " >>\nstream\n" + stream + "\nendstream"
   ];
   let pdf = "%PDF-1.4\n";
   const offsets = [0];
   for (let i = 0; i < objects.length; i++) {
-    offsets.push(Buffer.byteLength(pdf, "binary"));
+    offsets.push(Buffer.byteLength(pdf, "utf8"));
     pdf += (i + 1) + " 0 obj\n" + objects[i] + "\nendobj\n";
   }
-  const xrefOffset = Buffer.byteLength(pdf, "binary");
+  const xrefOffset = Buffer.byteLength(pdf, "utf8");
   pdf += "xref\n0 " + (objects.length + 1) + "\n0000000000 65535 f \n";
   for (let i = 1; i < offsets.length; i++) {
     pdf += String(offsets[i]).padStart(10, "0") + " 00000 n \n";
   }
   pdf += "trailer\n<< /Size " + (objects.length + 1) + " /Root 1 0 R >>\nstartxref\n" + xrefOffset + "\n%%EOF";
-  return Buffer.from(pdf, "binary");
+  return Buffer.from(pdf, "utf8");
 }
 
 test("PDF endpoint extracts a real PDF fixture and returns exact-page financial evidence without OpenAI", async () => {
