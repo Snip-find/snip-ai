@@ -30,7 +30,7 @@ function createResponse() {
 function createTextPdf(lines) {
   // Build a tiny valid one-page PDF so endpoint tests exercise real PDF parsing
   // without depending on a live annual-report URL or a checked-in binary fixture.
-  const escapePdf = value => String(value).replace(/\\\\/g, "\\\\\\\\").replace(/\\(/g, "\\\\(").replace(/\\)/g, "\\\\)");
+  const escapePdf = value => String(value).replace(/\\/g, "\\\\").replace(/\(/g, "\\(").replace(/\)/g, "\\)").replace(/£/g, "\\243");
   const commands = ["BT", "/F1 11 Tf", "50 760 Td"];
   lines.forEach((line, index) => {
     if (index) commands.push("0 -18 Td");
