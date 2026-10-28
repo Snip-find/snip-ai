@@ -351,7 +351,7 @@ export default async function handler(req, res) {
       });
     }
 
-    // 2. FIXED: Fall through to LLM Semantic Search (findHandler) if structured extraction yields no result
+    // 2. Fall through to LLM Semantic Search (findHandler) if structured extraction yields no result
     const terms = [...new Set((question.toLocaleLowerCase().match(/[\p{L}\p{N}]{2,}/gu) || []))];
     const ranked = blocks.map((b, i) => {
       const lower = b.text.toLowerCase();
@@ -380,10 +380,10 @@ export default async function handler(req, res) {
       return res.status(502).json({ error: result.error || "Snip could not analyze this PDF." });
     }
 
-    // 3. FIXED: Properly map returned evidence to global blocks by ID and payload index
+    // 3. Properly map returned evidence to global blocks by ID and payload index
     const evidence = (Array.isArray(result.evidence) ? result.evidence : []).map(item => {
       const payloadMatch = item.block_index != null ? payloadBlocks[Number(item.block_index)] : null;
-      const block = blocks.find(b => b.id === item.block_id) || payloadMatch;
+      const block = blocks.find(b => b.id === item.block_id || (item.block_index != null && b.index === Number(item.block_index))) || payloadMatch;
       if (!block) return null;
       return { ...item, block_id: block.id, page: block.page, text: String(item.text || item.passage || "").trim() };
     }).filter(item => item?.text && Number.isInteger(item.page) && item.page >= 1);
