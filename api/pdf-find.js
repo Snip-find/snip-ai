@@ -213,6 +213,15 @@ function captureResponse() {
   };
 }
 
+function isExplicitPrimaryStatementCashQuestion(question) {
+  return (
+    isCashPositionLookup(question) &&
+    /\b(?:statement of financial position|balance sheet|primary statement)\b/i.test(
+      String(question || "")
+    )
+  );
+}
+
 export default async function handler(req, res) {
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
@@ -233,8 +242,7 @@ export default async function handler(req, res) {
   try {
     let requestUrl = url;
     let response;
-    const MAX_REDIRECTS = 3;
-    for (let redirects = 0; redirects <= MAX_REDIRECTS; redirects += 1) {
+    for (let redirects = 0; redirects <= 3; redirects += 1) {
       if (unsafeUrl(requestUrl)) {
         const error = new Error("The PDF URL redirected to an unsupported address.");
         error.statusCode = 400;
@@ -248,7 +256,7 @@ export default async function handler(req, res) {
       });
       if (![301, 302, 303, 307, 308].includes(response.status)) break;
       const location = response.headers.get("location");
-      if (!location || redirects === MAX_REDIRECTS) {
+      if (!location || redirects === 3) {
         const error = new Error("The PDF URL has too many redirects or an invalid redirect.");
         error.statusCode = 502;
         throw error;
@@ -294,7 +302,6 @@ export default async function handler(req, res) {
         blocks.push({ id: `pdf-${page}-${index}`, index: index++, text: item.text, section: `PDF page ${page}`, page });
       }
     }
-
     if (pagesWithoutText.length && process.env.SNIP_OCR_SPACE_API_KEY) {
       try {
         const ocrPages = await withAbort(extractScannedPdfPages(bytes, controller.signal), controller.signal);
@@ -322,11 +329,10 @@ export default async function handler(req, res) {
     if (!blocks.length) {
       const message = process.env.SNIP_OCR_SPACE_API_KEY
         ? "This PDF has no readable text. The configured OCR service could not extract any text."
-        : "This PDF has no readable text. To enable scanned-PDF OCR, configure SNIP_OCR_SPACE_API_KEY.";
+        : "This PDF has no readable text. To enable scanned-PDF OCR, configure SNIP_OCR_SPACE_API_KEY. Scanned documents are sent to OCR.space only when this setting is enabled.";
       return res.status(422).json({ error: message });
     }
 
-    // 1. Try structured financial table extraction first
     const financial = selectPrimaryFinancialEvidence(question, financialRows);
     if (financial) {
       const { row } = financial;
@@ -351,21 +357,26 @@ export default async function handler(req, res) {
       });
     }
 
-    // 2. Fall through to LLM Semantic Search (findHandler) if structured extraction yields no result
+    if (isExplicitPrimaryStatementCashQuestion(question)) {
+      return res.status(200).json({
+        answer: null,
+        evidence: [],
+        pageCount
+      });
+    }
+
     const terms = [...new Set((question.toLocaleLowerCase().match(/[\p{L}\p{N}]{2,}/gu) || []))];
     const ranked = blocks.map((b, i) => {
       const lower = b.text.toLowerCase();
       const score = terms.reduce((n, term) => n + (lower.includes(term) ? 1 : 0), 0);
       return { b, i, score };
     }).sort((a, b) => b.score - a.score || a.i - b.i);
-
     const chosen = new Map();
     for (const item of ranked.slice(0, 50)) {
       for (const neighbor of [blocks[item.i - 1], item.b, blocks[item.i + 1]]) {
         if (neighbor) chosen.set(neighbor.id, neighbor);
       }
     }
-
     const payloadBlocks = [...chosen.values()].slice(0, 70);
     const analysisResponse = captureResponse();
     const analysisPromise = findHandler({
@@ -373,21 +384,18 @@ export default async function handler(req, res) {
       body: { question, blocks: payloadBlocks },
       headers: {}
     }, analysisResponse);
-
     await withAbort(analysisPromise, controller.signal);
     const result = analysisResponse.body || {};
     if (analysisResponse.statusCode < 200 || analysisResponse.statusCode >= 300) {
       return res.status(502).json({ error: result.error || "Snip could not analyze this PDF." });
     }
-
-    // 3. Properly map returned evidence to global blocks by ID and payload index
     const evidence = (Array.isArray(result.evidence) ? result.evidence : []).map(item => {
       const payloadMatch = item.block_index != null ? payloadBlocks[Number(item.block_index)] : null;
-      const block = blocks.find(b => b.id === item.block_id || (item.block_index != null && b.index === Number(item.block_index))) || payloadMatch;
+      const block = blocks.find(b => b.id === item.block_id ||
+        (item.block_index != null && b.index === Number(item.block_index))) || payloadMatch;
       if (!block) return null;
       return { ...item, block_id: block.id, page: block.page, text: String(item.text || item.passage || "").trim() };
     }).filter(item => item?.text && Number.isInteger(item.page) && item.page >= 1);
-
     return res.status(200).json({ evidence: evidence.slice(0, 3), pageCount });
   } catch (error) {
     console.error("Snip PDF search error:", error);
