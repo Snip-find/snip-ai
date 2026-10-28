@@ -21,19 +21,26 @@ function unsafeUrl(raw) {
   try {
     const u = new URL(raw);
     if (!["http:", "https:"].includes(u.protocol) || u.username || u.password) return true;
-    const h = u.hostname.toLowerCase().replace(/^\\[|\\]$/g, "").replace(/\.$/, "");
+    
+    // Correctly strip surrounding brackets from IPv6 hostnames
+    const h = u.hostname.toLowerCase().replace(/^\[|\]$/g, "").replace(/\.$/, "");
     if (!h || h === "localhost" || h.endsWith(".localhost") ||
         h.endsWith(".local") || h === "metadata.google.internal") return true;
+
     const version = isIP(h);
     if (version === 4) {
-      const [a, b, c] = h.split(".").map(Number);
+      const parts = h.split(".").map(n => Number.parseInt(n, 10));
+      if (parts.length !== 4 || parts.some(n => Number.isNaN(n) || n < 0 || n > 255)) return true;
+      const [a, b, c, d] = parts;
       return a === 0 || a === 10 || a === 127 || a >= 224 ||
         (a === 100 && b >= 64 && b <= 127) || (a === 169 && b === 254) ||
         (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168) ||
-        (a === 192 && b === 0) ||
+        (a === 192 && b === 0 && c === 0) ||
+        (a === 192 && b === 0 && c === 2) || // TEST-NET-1
         (a === 192 && b === 88 && c === 99) ||
-        (a === 198 && (b === 18 || b === 19 || b === 51)) ||
-        (a === 203 && b === 0);
+        (a === 198 && (b === 18 || b === 19)) || // Benchmarking
+        (a === 198 && b === 51 && c === 100) || // TEST-NET-2
+        (a === 203 && b === 0 && c === 113);   // TEST-NET-3
     }
     if (version === 6) {
       const ip = h.toLowerCase();
@@ -389,13 +396,23 @@ export default async function handler(req, res) {
     if (analysisResponse.statusCode < 200 || analysisResponse.statusCode >= 300) {
       return res.status(502).json({ error: result.error || "Snip could not analyze this PDF." });
     }
+
+    // Updated evidence mapping logic
     const evidence = (Array.isArray(result.evidence) ? result.evidence : []).map(item => {
-      const payloadMatch = item.block_index != null ? payloadBlocks[Number(item.block_index)] : null;
-      const block = blocks.find(b => b.id === item.block_id ||
-        (item.block_index != null && b.index === Number(item.block_index))) || payloadMatch;
+      const payloadIdx = item.block_index != null ? Number(item.block_index) : -1;
+      const block = (payloadIdx >= 0 && payloadIdx < payloadBlocks.length ? payloadBlocks[payloadIdx] : null)
+        || blocks.find(b => b.id === item.block_id);
+
       if (!block) return null;
-      return { ...item, block_id: block.id, page: block.page, text: String(item.text || item.passage || "").trim() };
+      return { 
+        ...item, 
+        block_id: block.id, 
+        block_index: block.index, 
+        page: block.page, 
+        text: String(item.text || item.passage || block.text || "").trim() 
+      };
     }).filter(item => item?.text && Number.isInteger(item.page) && item.page >= 1);
+
     return res.status(200).json({ evidence: evidence.slice(0, 3), pageCount });
   } catch (error) {
     console.error("Snip PDF search error:", error);
