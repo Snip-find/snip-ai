@@ -1,0 +1,12 @@
+Snip 2.3.66 focused checks
+
+PASS — manifest.json parses as JSON.
+PASS — pdf.js syntax check.
+PASS — content.js syntax check.
+PASS — background.js syntax check.
+PASS — bundled web/viewer.js syntax check.
+PASS — bundled build/pdf.worker.js syntax check.
+PASS — actual assemblePdfText helper reconstructs separate items “cash”, “and”, “cash”, “equivalents” into the searchable phrase “cash and cash equivalents”.
+PASS — extension ZIP integrity after packaging.
+
+NOT TESTED — Chrome end-to-end operation, remote API integration, exact M&S PDF highlight boundaries, scanned-PDF OCR, or performance on very large PDFs. These require runtime/fixture access not available in this build check.

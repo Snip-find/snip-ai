@@ -1,0 +1,14 @@
+Snip 2.3.67 focused audit and regression checks
+
+PASS — manifest JSON validation.
+PASS — JavaScript syntax checks for extension scripts and bundled PDF.js files used by the extension.
+PASS — ZIP integrity check after packaging.
+PASS — new evidence-label anchor logic: for a table row with trailing note/value cells, the label-only anchor is considered before the full evidence passage when the API omits `quote`.
+PASS — backend source test suite in the separate Snip-Source.zip project: 24 passed, 1 skipped. This is a separate local backend project and does not prove the deployed `/api/pdf-find` service is running that code.
+
+NOT TESTED — Chrome end-to-end behavior, deployed remote API integration, natural-language retrieval against the live M&S PDF, exact rendered highlight boundaries in Chrome, and repeat-open performance.
+NOT IMPLEMENTED in this extension ZIP — OCR for scanned PDFs.
+
+Architecture note
+- The popup sends `{question, url}` to `https://snip-chi.vercel.app/api/pdf-find`. That remote service selects evidence; the extension then uses bundled PDF.js to verify/highlight a matching phrase.
+- The IndexedDB text index is used for local page-text reuse during anchoring, not as the semantic retrieval engine. The extension still requires the remote API for question understanding and passage selection.

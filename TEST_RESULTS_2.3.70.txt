@@ -1,0 +1,13 @@
+Snip 2.3.70 focused verification results
+
+PASS: JavaScript syntax check for pdf.js.
+PASS: manifest.json parses and declares version 2.3.70.
+PASS: Financial-row evidence with matching figures is accepted by the new verification helper.
+PASS: Same row label with different nearby figures is rejected by the new verification helper.
+PASS: Ordinary prose / label-only text does not trigger strict financial-row numeric verification.
+PASS: ZIP integrity check.
+
+Limitations:
+- These are focused helper/static checks, not a Chrome end-to-end test.
+- The original signed M&S PDF and live deployed /api/pdf-find service were not available for end-to-end validation.
+- This guard prevents a financial row from being accepted when its supplied figures do not match the candidate page text. It does not independently prove that the remote semantic search selected the best possible passage for every question.

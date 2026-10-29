@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Snip PDF</title>
+  <link rel="stylesheet" href="pdf.css">
+</head>
+<body>
+  <div class="app-shell">
+  <main class="snip-card">
+    <div class="snip-brand">SNIP <span>Find it in context</span></div>
+    <div class="snip-subtitle" id="pdf-title">PDF</div>
+    <div class="snip-row">
+      <input id="question" autofocus placeholder="Ask a question about this PDF...">
+      <button id="find">Find</button>
+      <button id="close" aria-label="Close">×</button>
+    </div>
+    <div class="snip-usage" id="usage">Checking account…</div>
+    <div class="snip-auth-row">
+      <button class="link" id="login">Log in</button>
+      <button class="link" id="signup">Sign up</button>
+      <button class="link" id="pricing">Plans</button>
+      <button class="link" id="manage" hidden>Manage subscription</button>
+      <button class="link" id="logout" hidden>Log out</button>
+    </div>
+    <div id="auth" hidden>
+      <input id="email" type="email" placeholder="Email" autocomplete="email">
+      <input id="password" type="password" placeholder="Password" autocomplete="current-password">
+      <div class="auth-actions"><button id="auth-submit">Log in</button><button id="auth-cancel">Cancel</button></div>
+      <div id="auth-status"></div>
+    </div>
+    <div id="upgrade" hidden>
+      <div class="upgrade-heading"><div class="upgrade-title">Choose your Snip plan</div><button id="upgrade-close" aria-label="Close plans" title="Close plans">×</button></div>
+      <div class="upgrade-copy" id="upgrade-copy">Choose Free to keep using Snip at no cost, or compare paid plans.</div>
+      <div class="plans">
+        <button id="free">Free · $0 · 10 searches/day</button>
+        <button id="pro">Pro · $5/mo · 500 searches/month</button>
+        <button id="unlimited">Unlimited · $15/mo</button>
+      </div>
+    </div>
+    <div class="status" id="status">Ready to search this PDF.</div>
+  </main>
+  <iframe id="pdf-viewer" title="PDF document" allow="fullscreen" src="web/viewer.html"></iframe>
+  </div>
+  <script src="pdf.js"></script>
+</body>
+</html>
